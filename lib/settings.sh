@@ -77,25 +77,6 @@ _write_abx_settings() {
   if [ "$PORTS_OWNED" = true ] || [ "$(docker inspect -f '{{.State.Running}}' "$PORTS_CONTAINER" 2>/dev/null)" = true ]; then
     ports="$PORTS_SPEC"
   fi
-  python3 - "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
-    "http://$GATEWAY_ALIAS:$GATEWAY_PORT" "$GATEWAY_NO_PROXY" <<'PY'
-import json, os, sys
-path, ws, statusline, bedrock, region, ports, gateway, no_proxy = sys.argv[1:9]
-data = {}
-env = {}
-if statusline == "true":
-    data["statusLine"] = {"type": "command", "command": "bash %s/.abx/statusline.sh" % ws, "padding": 0}
-if bedrock == "true":
-    env.update({"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": region,
-                "ANTHROPIC_BEDROCK_BASE_URL": gateway, "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
-                "NO_PROXY": no_proxy, "no_proxy": no_proxy})
-if ports:
-    env["ABX_PUBLISHED_PORTS"] = ports
-if env:
-    data["env"] = env
-with open(path + ".tmp", "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-os.replace(path + ".tmp", path)
-PY
+  python3 "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
+    "http://$GATEWAY_ALIAS:$GATEWAY_PORT" "$GATEWAY_NO_PROXY"
 }

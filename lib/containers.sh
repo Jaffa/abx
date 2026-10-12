@@ -6,6 +6,7 @@ DOCKER_BOOL_RE='^(true|false)$'
 DOCKER_SERVICE_RE='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 DOCKER_PATH_RE='^/[^[:cntrl:]]*$'
 DOCKER_TIME_RE='^[0-9][0-9TZ:.+-]*$'
+DOCKER_PROJECT_RE='^[a-z0-9][a-z0-9_-]*$'
 
 # Reads the facts about container ID that abx needs, and sets CTR_RUNNING, CTR_SERVICE, CTR_IMAGE, CTR_CREATED,
 # CTR_WORKDIR and CTR_OWNED. CTR_WORKDIR is the label without control characters, for messages. A container is owned

@@ -45,8 +45,17 @@ Usage:
   abx reload             reload the proxy after editing policy files directly
   abx status             show the effective policy and compose configuration
   abx rebuild            rebuild the derived agent image from the latest upstream image
+  abx clean [options]    remove this project's sandbox containers, sidecars and networks (see below)
   abx check              show agentbox's version and help, to confirm the flags this script uses
   abx help
+
+Clean options (abx clean; nothing is removed that abx doesn't own, and the state directory is kept):
+  --all                  every agentbox project on this machine, not just this one
+  --volumes              also remove the Compose volumes, including the agent's state; refused if another
+                         directory uses this project's name
+  --images               also remove abx/ images and dangling images (with --all)
+  --dry-run              list what would be removed, and remove nothing
+  --yes                  remove without asking; needed when the input isn't a terminal
 
 Options (before any claude args):
   --bedrock              use Amazon Bedrock via a host AWS profile; remembered for this project
@@ -104,7 +113,7 @@ done
 
 if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ] && [ $# -gt 0 ]; then
   case "$1" in
-    shell|policy|logs|reload|status|check|rebuild) COMMAND="$1"; shift ;;
+    shell|policy|logs|reload|status|check|rebuild|clean) COMMAND="$1"; shift ;;
     help|-h|--help) usage; exit 0 ;;
   esac
   PASSTHROUGH_ARGS+=("$@")
@@ -171,6 +180,7 @@ chmod 700 "$ABX_STATE"
 if [ ! -d .agent-sandbox ]; then
   case "$COMMAND" in
     claude|shell) _init_project ;;
+    clean) ;;
     *) die "No sandbox in $PROJECT_DIR yet. Run 'abx' first to initialise it." ;;
   esac
 else
@@ -237,6 +247,7 @@ case "$COMMAND" in
     fi
     ;;
   rebuild) _cmd_rebuild ;;
+  clean) _cmd_clean ;;
   policy) _ensure_editor; exec agentbox edit policy ;;
   logs)   exec agentbox proxy logs ;;
   reload) exec agentbox proxy reload ;;

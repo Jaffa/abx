@@ -31,6 +31,7 @@ start_stack() {
   awk '$1 != "ctr-agent" && $1 != "ctr-proxy"' "$S/containers" > "$S/containers.tmp" && mv "$S/containers.tmp" "$S/containers"
   printf 'ctr-agent ctr-agent %s %s agent %s %s true\n' "$image" "$name" "$wd" "$now" >> "$S/containers"
   printf 'ctr-proxy ctr-proxy ghcr.io/mattolson/agent-sandbox-proxy:latest %s proxy %s %s true\n' "$name" "$wd" "$now" >> "$S/containers"
+  awk '$1 != "p_default"' "$S/networks" > "$S/networks.tmp" && mv "$S/networks.tmp" "$S/networks"
   printf 'p_default %s\n' "$name" >> "$S/networks"
 }
 

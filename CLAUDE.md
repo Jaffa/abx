@@ -9,6 +9,7 @@ This file is for working on abx itself. `resources/abx-CLAUDE.md` is a different
 | Path | Purpose |
 | --- | --- |
 | `abx.sh` | The launcher. Installed by symlinking it onto `PATH` as `abx` |
+| `lib/` | The modules abx.sh sources from its real location: output helpers, terminal handling, port publishing, Bedrock, the UID alignment and derived image, settings and project setup. The Python programs they run are here too (`lib/*.py`). Required: abx stops with an error if it's missing |
 | `resources/` | Files abx itself depends on, used in place. Never copied to the user's configuration |
 | `resources/abx-CLAUDE.md` | The sandbox instructions, appended to Claude Code's managed `CLAUDE.md` in the agent image. Required: abx warns if it's missing |
 | `resources/abx-bedrock-signer.py` | The Bedrock gateway: a standard-library SigV4 signing proxy, built into a small image by abx. Required for `--bedrock` |
@@ -17,7 +18,7 @@ This file is for working on abx itself. `resources/abx-CLAUDE.md` is a different
 | `examples/statusline.sh` | A statusline showing the project name rather than `/workspace`. Installed only once copied to `~/.config/agent-sandbox/abx/statusline.sh` |
 | `examples/Dockerfile.extra` | Image extras adding Node.js, npm, pnpm and Yarn. Used only once copied to `~/.config/agent-sandbox/abx/Dockerfile.extra` |
 
-abx locates `resources/` relative to the real location of `abx.sh`, following symlinks, so the two must stay together. Anything in `examples/` must remain optional: no code path may fall back to it.
+abx locates `lib/` and `resources/` relative to the real location of `abx.sh`, following symlinks, so they must stay together. Anything in `examples/` must remain optional: no code path may fall back to it.
 
 ## How agentbox works (the parts abx depends on)
 
@@ -32,14 +33,16 @@ abx locates `resources/` relative to the real location of `abx.sh`, following sy
 
 ## What abx does on each run
 
-1. **Finds the project root.** It takes the nearest directory, from the current one upwards, containing `.agent-sandbox/` or `.abx/`; then the git root; then the current directory. The search stops below `$HOME`, and `/`, `$HOME` and `/Users`-style paths are refused. Markers come before git so a nested repository isn't mistaken for the project.
-2. **Initialises** with `agentbox init --agent claude --mode cli --name <dir>` if there's no sandbox yet, then applies the user's policy template.
-3. **Records the project name** in `.abx/project-name` for the statusline, since the container only ever sees `/workspace`.
-4. **Excludes** `.agent-sandbox/`, `.abx/` and `.pnpm-store/` via `.git/info/exclude`, never `.gitignore`. All three exist only because the project runs in abx's sandbox, so they're personal to this clone; `.gitignore` is shared project content, and editing it would leave changes in repositories the user may not own. `.pnpm-store/` is the one tool-specific entry: pnpm hard-links from its store, so it needs the store on the project's filesystem, which inside the sandbox is the `/workspace` mount. On a normal host, the store sits in the home directory and never appears in the project. Add another exclusion only when the sandbox itself causes a tool to write into the project; anything a normal host workflow also produces is the project's own business.
-5. **Ensures the agent can write to the project**, building a derived image when needed (see the #206 workaround).
-6. **Prepares Bedrock**, if enabled for the project.
-7. **Writes `.abx/settings.json`** and launches Claude Code in the matching subdirectory of `/workspace`, with `--settings /workspace/.abx/settings.json`.
-8. **Restores the terminal** on exit, by resetting text attributes and terminal modes and restoring `stty` state, then stops the credential refresher.
+`abx.sh` runs these steps in order. The module named at the end of each step holds its code.
+
+1. **Finds the project root.** It takes the nearest directory, from the current one upwards, containing `.agent-sandbox/` or `.abx/`; then the git root; then the current directory. The search stops below `$HOME`, and `/`, `$HOME` and `/Users`-style paths are refused. Markers come before git so a nested repository isn't mistaken for the project. Code: `lib/project.sh`.
+2. **Initialises** with `agentbox init --agent claude --mode cli --name <dir>` if there's no sandbox yet, then applies the user's policy template. Code: `lib/project.sh`.
+3. **Records the project name** in `.abx/project-name` for the statusline, since the container only ever sees `/workspace`. Code: `lib/settings.sh`.
+4. **Excludes** `.agent-sandbox/`, `.abx/` and `.pnpm-store/` via `.git/info/exclude`, never `.gitignore`. All three exist only because the project runs in abx's sandbox, so they're personal to this clone; `.gitignore` is shared project content, and editing it would leave changes in repositories the user may not own. `.pnpm-store/` is the one tool-specific entry: pnpm hard-links from its store, so it needs the store on the project's filesystem, which inside the sandbox is the `/workspace` mount. On a normal host, the store sits in the home directory and never appears in the project. Add another exclusion only when the sandbox itself causes a tool to write into the project; anything a normal host workflow also produces is the project's own business. Code: `lib/project.sh`.
+5. **Ensures the agent can write to the project**, building a derived image when needed (see the #206 workaround). Code: `lib/image.sh`.
+6. **Prepares Bedrock**, if enabled for the project. Code: `lib/bedrock.sh`.
+7. **Writes `.abx/settings.json`** and launches Claude Code in the matching subdirectory of `/workspace`, with `--settings /workspace/.abx/settings.json`. Code: `lib/settings.sh`, with `lib/write_settings.py`.
+8. **Restores the terminal** on exit, by resetting text attributes and terminal modes and restoring `stty` state, then stops the credential refresher. Code: `lib/terminal.sh`.
 
 ## Features
 
@@ -123,6 +126,7 @@ The agent can write anything in the project directory. Treat every file there as
 - **Output** goes through `info`, `debug` and `die`. Error messages say what happened and what to do next. Keep build output in `.abx/build.log`, shown only on failure.
 - **Edits to user files** are structural: merge and preserve, write a temporary file and `mv` it into place, and keep a backup when validating afterwards. Use Python for JSON and the Compose override (`python3` is required on the host).
 - **Comments** explain why: a constraint, a workaround, a security reason. They never restate the code or narrate a change.
+- **Library files** (`lib/*.sh`) contain only functions and constants; anything that depends on the project or environment is set up by a `_<module>_init_vars` function that `abx.sh` calls.
 
 ## Testing
 

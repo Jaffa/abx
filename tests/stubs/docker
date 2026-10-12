@@ -1,0 +1,89 @@
+#!/bin/bash
+# Stand-in for the Docker CLI, covering the calls abx makes. State lives in $ABX_TEST_STATE:
+#   docker-info        'permission' or 'down' to fail 'docker info'
+#   agent-running      the project's agent container is up (ctr-agent, with ctr-proxy)
+#   images/<tag>       images that exist; 'build' creates them, and keeps the Dockerfile in built/
+#   running/<name>     sidecar containers that are running; labels/<name>.<label> hold their labels
+#   busy-ports         ports Docker reports as already allocated
+#   exited, ps-list    output for the project's exited containers and container listing
+#   logs/<name>        output of 'docker logs'
+S="$ABX_TEST_STATE"
+mkdir -p "$S/images" "$S/built" "$S/running" "$S/labels" "$S/logs" "$S/run-args"
+printf 'docker %s\n' "$*" >> "$S/calls.log"
+tagfile() { printf '%s' "$1" | tr '/:' '__'; }
+
+case "$1" in
+  info)
+    case "$(cat "$S/docker-info" 2>/dev/null)" in
+      permission) echo "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock" >&2; exit 1 ;;
+      down) echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2; exit 1 ;;
+    esac ;;
+  build)
+    tag=""; prev=""
+    for a in "$@"; do [ "$prev" = -t ] && tag="$a"; prev="$a"; done
+    ctx="${!#}"
+    [ -f "$S/build-fails" ] && { echo "build failed: example" >&2; exit 1; }
+    touch "$S/images/$(tagfile "$tag")"
+    cp "$ctx/Dockerfile" "$S/built/$(tagfile "$tag").Dockerfile"
+    [ -f "$ctx/abx-CLAUDE.md" ] && cp "$ctx/abx-CLAUDE.md" "$S/built/$(tagfile "$tag").abx-CLAUDE.md"
+    [ -f "$ctx/signer.py" ] && cp "$ctx/signer.py" "$S/built/$(tagfile "$tag").signer.py"
+    echo built ;;
+  image)
+    if [ "$2" = inspect ] && [ "$3" = -f ]; then cat "$S/image-user" 2>/dev/null || echo dev; exit 0; fi
+    [ -f "$S/images/$(tagfile "$3")" ] || exit 1 ;;
+  ps)
+    case "$*" in
+      *"service=agent"*) [ -f "$S/agent-running" ] && echo ctr-agent ;;
+      *"status=exited"*) cat "$S/exited" 2>/dev/null ;;
+      "ps -aq "*) [ -f "$S/agent-running" ] && echo "ctr-agent ctr-proxy" ;;
+      "ps -a "*) cat "$S/ps-list" 2>/dev/null ;;
+    esac ;;
+  inspect)
+    fmt="$3"; name="$4"
+    case "$fmt" in
+      "{{.Config.Image}}") cat "$S/agent-image" 2>/dev/null || echo ghcr.io/mattolson/agent-sandbox-claude:latest ;;
+      "{{range .Mounts}}"*)
+        case "$name" in
+          ctr-agent) echo "p_claude-state p_claude-history p_proxy-ca p_proxy-run " ;;
+          ctr-proxy) echo "p_proxy-state p_proxy-ca p_proxy-run " ;;
+        esac ;;
+      "{{range \$k, \$v := .NetworkSettings.Networks}}"*) echo "p_default " ;;
+      "{{range .Config.Env}}"*) printf 'PATH=/usr/bin\nHTTP_PROXY=http://proxy:8080\nNO_PROXY=localhost,127.0.0.1,proxy\n' ;;
+      "{{.State.Running}}") [ -f "$S/running/$name" ] && echo true || exit 1 ;;
+      *'"abx.owner-pid"'*) cat "$S/labels/$name.owner-pid" 2>/dev/null ;;
+      *'"abx.ports-spec"'*) cat "$S/labels/$name.ports-spec" 2>/dev/null ;;
+    esac ;;
+  run)
+    if [ "$2" = -d ]; then
+      name="$4"
+      for b in $(cat "$S/busy-ports" 2>/dev/null); do
+        case "$*" in *":$b:$b "*)
+          echo "docker: Error response from daemon: driver failed programming external connectivity on endpoint $name (abc123): Bind for 0.0.0.0:$b failed: port is already allocated" >&2
+          exit 125 ;;
+        esac
+      done
+      [ -f "$S/run-fails" ] && { cat "$S/run-fails" >&2; exit 125; }
+      printf '%s\n' "$@" > "$S/run-args/$name"
+      touch "$S/running/$name"
+      for a in "$@"; do
+        case "$a" in
+          abx.owner-pid=*) printf '%s' "${a#*=}" > "$S/labels/$name.owner-pid" ;;
+          abx.ports-spec=*) printf '%s' "${a#*=}" > "$S/labels/$name.ports-spec" ;;
+        esac
+      done
+    else
+      for a in "$@"; do case "$a" in *:/v) echo "${a%%:*}" >> "$S/reowned" ;; esac; done
+    fi ;;
+  rm)
+    shift; [ "$1" = -f ] && shift
+    for n in "$@"; do
+      echo "removed $n" >> "$S/events"
+      rm -f "$S/running/$n" "$S/labels/$n".*
+      case "$n" in ctr-agent|ctr-proxy) rm -f "$S/agent-running" "$S/stale" ;; esac
+    done ;;
+  network) ;;
+  logs)
+    if [ -f "$S/logs/$2" ]; then cat "$S/logs/$2"
+    else case "$2" in abx-gateway-*) echo "[signer] forwarding Bedrock inference to bedrock-runtime.eu-west-1.amazonaws.com on port 8787" ;; esac; fi ;;
+esac
+exit 0

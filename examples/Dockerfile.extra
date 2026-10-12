@@ -1,0 +1,28 @@
+# Image extras for the agentbox agent image, layered in by abx.
+# Install at ~/.config/agent-sandbox/abx/Dockerfile.extra. Runs as root; abx restores the
+# image's own user afterwards and rebuilds automatically when this file changes.
+
+# Copying from the official image avoids adding apt repositories, and keeps node, npm and
+# corepack exactly as Node.js ships them. 24 is the current LTS line.
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && ln -sf ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+ && node --version && npm --version
+
+# Releases from at least seven days ago, matching the minimum-release-age rule for dependencies.
+RUN npm install -g --before="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" pnpm yarn \
+ && npm cache clean --force \
+ && pnpm --version && yarn --version
+
+# pnpm's update notice suggests piping an installer into a shell, and updates belong in this file
+# anyway. Running as the agent user (USER_NAME is set by abx's build) lets pnpm write the setting
+# wherever this version keeps its global config; the 'get' shows the result in the build log.
+USER ${USER_NAME}
+RUN pnpm config set --global update-notifier false \
+ && pnpm config get update-notifier
+USER root
+
+# No CA or proxy environment variables here: the upstream image configures how its tools trust
+# the sandbox proxy, and overriding NODE_EXTRA_CA_CERTS broke Claude Code's TLS to Bedrock.

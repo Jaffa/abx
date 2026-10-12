@@ -1,0 +1,55 @@
+#!/bin/bash
+# Stand-in for the agentbox CLI. Behaviour is driven by files in $ABX_TEST_STATE:
+#   probe / probe-remapped   output of the write probe, before and after the agent image is remapped
+#   stale                    'exec' fails with runc's stale-mount error until containers are removed
+#   stack-fails              'exec true' fails, printing this file
+#   generated-policy         policy content written by 'init'
+#   override-scaffold        compose override content written by 'init'
+#   override-ignored         'compose config' doesn't reflect the override
+#   exec-exit                exit status of the final 'exec'
+#   exec-hook                a script sourced during the final 'exec', while the session is "running"
+S="$ABX_TEST_STATE"
+OVERRIDE=.agent-sandbox/compose/user.override.yml
+POLICY=.agent-sandbox/policy/user.policy.yaml
+printf 'agentbox %s\n' "$*" >> "$S/calls.log"
+case "$1" in
+  init)
+    mkdir -p .agent-sandbox/policy .agent-sandbox/compose
+    if [ -f "$S/generated-policy" ]; then cp "$S/generated-policy" "$POLICY"; else printf 'domains:\n  - generated.example.com\n' > "$POLICY"; fi
+    if [ -f "$S/override-scaffold" ]; then cp "$S/override-scaffold" "$OVERRIDE"; else
+      printf '%s\n' '# User-owned overrides; agentbox will not overwrite this file.' 'services:' '  agent:' '    volumes:' \
+        '      - type: bind' '        source: ${HOME}/.config/agent-sandbox/shell.d' '        target: /home/dev/.config/agent-sandbox/shell.d' \
+        '        read_only: true' > "$OVERRIDE"
+    fi ;;
+  policy)
+    if grep -q INVALID "$POLICY"; then echo "/etc/agent-sandbox/policy/user.policy.yaml.services[1] must contain 'name'"; exit 1; fi
+    cat "$POLICY" ;;
+  edit)
+    case "$2" in
+      policy) printf 'VISUAL=%s EDITOR=%s\n' "${VISUAL:-}" "${EDITOR:-}" > "$S/edit-policy" ;;
+      compose) "${VISUAL:-${EDITOR:-false}}" "$OVERRIDE" ;;
+    esac ;;
+  compose)
+    if [ -f "$S/override-ignored" ]; then echo "image: ghcr.io/mattolson/agent-sandbox-claude:latest"; else cat "$OVERRIDE"; fi ;;
+  exec)
+    shift
+    if [ -f "$S/stale" ]; then
+      echo "OCI runtime exec failed: exec failed: unable to start container process: current working directory is outside of container mount namespace root -- possible container breakout detected"
+      exit 1
+    fi
+    case "$*" in
+      *abx-write-probe*)
+        touch "$S/agent-running"
+        if [ -f "$S/probe-remapped" ] && grep -q 'image: abx/' "$OVERRIDE" 2>/dev/null; then cat "$S/probe-remapped"; else cat "$S/probe"; fi ;;
+      true)
+        if [ -f "$S/stack-fails" ]; then cat "$S/stack-fails"; exit 1; fi
+        touch "$S/agent-running" ;;
+      *)
+        touch "$S/agent-running"
+        printf '%s\n' "$@" > "$S/exec.args"
+        # A test can inspect the host's state while the session is "running".
+        if [ -f "$S/exec-hook" ]; then . "$S/exec-hook"; fi
+        exit "$(cat "$S/exec-exit" 2>/dev/null || echo 0)" ;;
+    esac ;;
+  *) echo "agentbox $*" ;;
+esac

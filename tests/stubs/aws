@@ -1,0 +1,11 @@
+#!/bin/bash
+S="$ABX_TEST_STATE"
+printf 'aws %s\n' "$*" >> "$S/calls.log"
+case "$*" in
+  "configure export-credentials --profile "*" --format process")
+    if [ -f "$S/aws-fail" ]; then echo "Error when retrieving token from sso: Token has expired and refresh failed" >&2; exit 255; fi
+    n=$(( $(cat "$S/aws-count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/aws-count"
+    printf '{"Version":1,"AccessKeyId":"ASIATEST%s","SecretAccessKey":"secret","SessionToken":"token","Expiration":"2099-01-01T00:00:00Z"}\n' "$n" ;;
+  "configure get region --profile "*) cat "$S/aws-region" 2>/dev/null || echo eu-west-1 ;;
+  *) exit 1 ;;
+esac

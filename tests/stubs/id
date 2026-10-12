@@ -1,0 +1,7 @@
+#!/bin/bash
+# Reports a non-root host user, so tests behave the same whoever runs them.
+case "${1:-}" in
+  -u) cat "$ABX_TEST_STATE/uid" 2>/dev/null || echo 1000 ;;
+  -g) echo 100 ;;
+  *) exec "$(PATH=/usr/bin:/bin command -v id)" "$@" ;;
+esac

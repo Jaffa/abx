@@ -42,17 +42,20 @@ _override_path() {
 }
 
 _override_snippet() {
-  printf 'services:\n  agent:\n    image: %s  %s\n    pull_policy: never  %s\n' "$1" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"
+  printf 'services:\n  agent:\n'
+  if [ -n "$1" ]; then printf '    image: %s  %s\n    pull_policy: never  %s\n' "$1" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"; fi
+  printf '    volumes:\n      - type: bind  %s\n        source: "%s/%s"  %s\n        target: /workspace/.abx  %s\n        read_only: true  %s\n' \
+    "$OVERRIDE_MARKER" "$PROJECT_DIR" "$ABX_DIR" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"
 }
 
 # agentbox seeds the override with its own content, so abx merges two keys into the agent service
 # rather than replacing the file, then checks the result through agentbox's merged configuration.
 _merge_override() {
-  python3 -I "$ABX_HOME/lib/merge_override.py" "$1" "$2"
+  python3 -I "$ABX_HOME/lib/merge_override.py" "$1" "$2" "$3"
 }
 
 _write_override() {
-  local tag="$1" file status backup=""
+  local tag="$1" file status config missing backup=""
   command -v python3 >/dev/null 2>&1 || die "python3 is needed to update agentbox's compose override."
   file="$(_override_path)"
   if [ -z "$file" ]; then
@@ -65,21 +68,38 @@ _write_override() {
     cp "$file" "$backup"
   fi
   mkdir -p "$(dirname "$file")"
-  status="$(_merge_override "$file" "$tag")" || die "Could not update $file"
+  status="$(_merge_override "$file" "$tag" "$PROJECT_DIR/$ABX_DIR")" || die "Could not update $file"
   if [ "$status" = conflict ]; then
     rm -f "$backup"
     echo "[error] $file already sets the agent's image or build, so abx won't change it. Merge this in yourself, then rerun abx:" >&2
     _override_snippet "$tag" >&2
     exit 1
   fi
-  if ! agentbox compose config 2>/dev/null | grep -F "$tag" >/dev/null; then
+  if [ "$status" = unchanged ]; then
+    rm -f "$backup"
+    return 0
+  fi
+  # Each change abx made must show in agentbox's merged configuration, or the file is restored.
+  config="$(agentbox compose config 2>/dev/null || true)"
+  missing=""
+  if [ -n "$tag" ] && ! printf '%s' "$config" | grep -F "$tag" >/dev/null; then missing="new image"; fi
+  if [ -z "$missing" ] && ! printf '%s' "$config" | grep -F "target: /workspace/.abx" >/dev/null; then missing="new mount"; fi
+  if [ -n "$missing" ]; then
     if [ -n "$backup" ]; then mv -f "$backup" "$file"; else rm -f "$file"; fi
-    echo "[error] agentbox's merged configuration didn't pick up the new image, so $file has been restored. Add this with 'agentbox edit compose':" >&2
+    echo "[error] agentbox's merged configuration didn't pick up the $missing, so $file has been restored. Add this with 'agentbox edit compose':" >&2
     _override_snippet "$tag" >&2
     exit 1
   fi
   rm -f "$backup"
+  # Containers started from the previous override don't have the change, so they're recreated.
+  _stop_project_containers
   debug "override $status in $file"
+}
+
+# The agent can read .abx/ but not write it, so the host's files there can't be changed from inside. Applied
+# on every run, whether or not the agent has a derived image.
+_ensure_abx_mount() {
+  _write_override ""
 }
 
 _claude_md_template() {

@@ -199,6 +199,7 @@ case "$COMMAND" in
     _remove_legacy_settings
     _install_statusline
     _ensure_uid_match
+    _ensure_abx_mount
     if [ "$BEDROCK_ENABLED" = true ]; then
       _prepare_bedrock
       _start_refresher
@@ -224,6 +225,7 @@ case "$COMMAND" in
   shell)
     _record_project_name
     _ensure_uid_match
+    _ensure_abx_mount
     if [ -n "$START_REL" ]; then
       _run_interactive agentbox exec sh -c 'cd "$1" && exec "${SHELL:-/bin/sh}" -l' abx "$SANDBOX_WORKSPACE$START_REL"
     else

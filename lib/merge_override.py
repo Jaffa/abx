@@ -1,87 +1,146 @@
 # Run as a file rather than from stdin, so the working directory (the project, which the agent can write to) isn't first on sys.path.
-import re, sys
+# Merges abx's settings into agentbox's compose override, for the agent service only. The file is edited as text,
+# since the standard library has no YAML parser, so every line abx adds carries MARK, and the user's own keys are
+# left alone. usage: merge_override.py FILE IMAGE SOURCE
+#   IMAGE is the derived image to run, or empty to leave the agent's image alone.
+#   SOURCE is the absolute path of the project's .abx/ directory, mounted read-only in the agent.
+# Prints 'unchanged', 'changed' or 'conflict' (the user already sets the agent's image or build).
+import json
+import os
+import re
+import sys
 
 MARK = "# abx: uid-remap"
+MOUNT_TARGET = "/workspace/.abx"
 
-MARK = "# abx: uid-remap"
 
-def merge(text, tag):
-    """Return (new_text, status). status: 'updated' | 'merged' | 'conflict'."""
-    lines = text.split("\n")
+def indent_of(line):
+    return len(line) - len(line.lstrip(" "))
 
-    # Already managed by abx: refresh the tag in place.
-    if any(MARK in l for l in lines):
-        out = [re.sub(r"^(\s*image:\s*)\S+(.*%s.*)$" % re.escape(MARK), r"\g<1>%s\g<2>" % tag, l) for l in lines]
-        return "\n".join(out), "updated"
 
-    def is_content(l):
-        s = l.strip()
-        return s and not s.startswith("#")
+def is_content(line):
+    s = line.strip()
+    return bool(s) and not s.startswith("#")
 
+
+def block_end(lines, start, indent):
+    """The first content line after START whose indentation is no deeper than INDENT."""
+    for j in range(start + 1, len(lines)):
+        if is_content(lines[j]) and indent_of(lines[j]) <= indent:
+            return j
+    return len(lines)
+
+
+def locate(lines):
+    """Finds services and the agent service, and the indentation of their keys: (services, agent, child, key)."""
     svc = next((i for i, l in enumerate(lines) if re.match(r"^services:\s*(\{\s*\})?\s*(#.*)?$", l)), None)
     if svc is None:
-        block = ["services:", "  agent:", "    image: %s  %s" % (tag, MARK), "    pull_policy: never  %s" % MARK]
-        body = text.rstrip("\n")
-        return (body + "\n" if body else "") + "\n".join(block) + "\n", "merged"
-    if re.match(r"^services:\s*\{\s*\}", lines[svc]):
-        lines[svc] = "services:"
-
-    # Indentation of services' children, from the first content line below 'services:'.
-    end = len(lines)
-    for j in range(svc + 1, len(lines)):
-        if is_content(lines[j]) and not lines[j].startswith((" ", "\t")):
-            end = j
-            break
-    child_indent = None
-    for j in range(svc + 1, end):
-        if is_content(lines[j]):
-            child_indent = re.match(r"^(\s*)", lines[j]).group(1)
-            break
-    child_indent = child_indent or "  "
-    step = child_indent
-
-    agent = None
-    for j in range(svc + 1, end):
-        m = re.match(r"^%sagent:\s*(\{\s*\})?\s*(#.*)?$" % re.escape(child_indent), lines[j])
-        if m:
-            agent = j
-            if m.group(1):
-                lines[j] = "%sagent:" % child_indent
-            break
-
+        return None, None, None, None
+    end = block_end(lines, svc, 0)
+    child = next((indent_of(lines[j]) for j in range(svc + 1, end) if is_content(lines[j])), 2)
+    pattern = r"^%sagent:\s*(\{\s*\})?\s*(#.*)?$" % (" " * child)
+    agent = next((j for j in range(svc + 1, end) if re.match(pattern, lines[j])), None)
     if agent is None:
-        insert = ["%sagent:" % child_indent,
-                  "%s%simage: %s  %s" % (child_indent, step, tag, MARK),
-                  "%s%spull_policy: never  %s" % (child_indent, step, MARK)]
-        lines[svc + 1:svc + 1] = insert
-        return "\n".join(lines), "merged"
+        return svc, None, child, None
+    a_end = block_end(lines, agent, child)
+    key = next((indent_of(lines[j]) for j in range(agent + 1, a_end) if is_content(lines[j])), child + 2)
+    return svc, agent, child, key
 
-    # Inside the agent block: find its key indentation and refuse if the user already set an image.
-    a_end = end
-    for j in range(agent + 1, end):
-        if is_content(lines[j]) and len(re.match(r"^(\s*)", lines[j]).group(1)) <= len(child_indent):
-            a_end = j
-            break
-    key_indent = None
-    for j in range(agent + 1, a_end):
-        if is_content(lines[j]):
-            key_indent = re.match(r"^(\s*)", lines[j]).group(1)
-            break
-    key_indent = key_indent or child_indent + step
-    for j in range(agent + 1, a_end):
-        if re.match(r"^%s(image|build|pull_policy):" % re.escape(key_indent), lines[j]):
-            return text, "conflict"
-    lines[agent + 1:agent + 1] = ["%simage: %s  %s" % (key_indent, tag, MARK),
-                                  "%spull_policy: never  %s" % (key_indent, MARK)]
-    return "\n".join(lines), "merged"
 
-path, tag = sys.argv[1], sys.argv[2]
+def mount_lines(indent, source):
+    return [
+        indent + "- type: bind  " + MARK,
+        indent + "  source: " + json.dumps(source) + "  " + MARK,
+        indent + "  target: " + MOUNT_TARGET + "  " + MARK,
+        indent + "  read_only: true  " + MARK,
+    ]
+
+
+class Conflict(Exception):
+    pass
+
+
+def merge(text, image, source):
+    """Returns the merged text, or raises Conflict."""
+    lines = text.rstrip("\n").split("\n") if text.strip() else []
+    svc, agent, child, key = locate(lines)
+    if svc is None:
+        lines.append("services:")
+    elif re.match(r"^services:\s*\{\s*\}", lines[svc]):
+        lines[svc] = "services:"
+    svc, agent, child, key = locate(lines)
+    if agent is None:
+        lines.insert(svc + 1, " " * child + "agent:")
+    elif re.match(r"^\s*agent:\s*\{\s*\}", lines[agent]):
+        lines[agent] = " " * child + "agent:"
+    svc, agent, child, key = locate(lines)
+    a_end = block_end(lines, agent, child)
+
+    if image:
+        for j in range(agent + 1, a_end):
+            if re.match(r"^%s(image|build|pull_policy):" % (" " * key), lines[j]) and MARK not in lines[j]:
+                raise Conflict()
+        marked = [j for j in range(agent + 1, a_end) if MARK in lines[j] and re.match(r"^\s*image:", lines[j])]
+        if marked:
+            for j in marked:
+                lines[j] = re.sub(r"^(\s*image:\s*)\S+", lambda m: m.group(1) + image, lines[j], count=1)
+        else:
+            lines[agent + 1:agent + 1] = [" " * key + "image: " + image + "  " + MARK,
+                                          " " * key + "pull_policy: never  " + MARK]
+            a_end += 2
+
+    if source:
+        target = next((j for j in range(agent + 1, a_end)
+                       if MARK in lines[j] and re.match(r"^\s*(- )?target: %s\s" % re.escape(MOUNT_TARGET), lines[j])),
+                      None)
+        if target is not None:
+            # abx's own four lines, written together: type, source, target, read_only.
+            start = target - 2
+            if not (re.match(r"^\s*- type: bind", lines[start]) and re.match(r"^\s*source:", lines[start + 1])
+                    and re.match(r"^\s*read_only:", lines[start + 3])):
+                raise Conflict()
+            lines[start:start + 4] = mount_lines(" " * indent_of(lines[start]), source)
+        else:
+            vol = next((j for j in range(agent + 1, a_end) if re.match(r"^%svolumes:" % (" " * key), lines[j])), None)
+            if vol is None:
+                lines[agent + 1:agent + 1] = [" " * key + "volumes:"] + mount_lines(" " * (key + 2), source)
+            else:
+                if not re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})?\s*(#.*)?$", lines[vol]):
+                    raise Conflict()
+                if re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})", lines[vol]):
+                    lines[vol] = " " * key + "volumes:"
+                last, item = vol, None
+                for j in range(vol + 1, a_end):
+                    if not is_content(lines[j]):
+                        continue
+                    stripped = lines[j].strip()
+                    if indent_of(lines[j]) > key or (indent_of(lines[j]) == key and stripped.startswith("-")):
+                        last = j
+                        if item is None and stripped.startswith("-"):
+                            item = indent_of(lines[j])
+                    else:
+                        break
+                indent = item if item is not None else key + 2
+                lines[last + 1:last + 1] = mount_lines(" " * indent, source)
+
+    return "\n".join(lines) + "\n"
+
+
+path, image, source = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
-    text = open(path).read()
+    text = open(path, encoding="utf-8").read()
 except FileNotFoundError:
     text = ""
-new, status = merge(text, tag)
-if status != "conflict":
-    with open(path, "w") as f:
-        f.write(new if new.endswith("\n") else new + "\n")
-print(status)
+try:
+    new = merge(text, image, source)
+except Conflict:
+    print("conflict")
+    sys.exit(0)
+if new == text:
+    print("unchanged")
+    sys.exit(0)
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    f.write(new)
+os.replace(tmp, path)
+print("changed")

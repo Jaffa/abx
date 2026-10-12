@@ -37,7 +37,7 @@ test_container_named_for_this_project_in_another_directory_stops_abx() {
   assert_status 1
   assert_out_contains "$HOME/src/other/.agent-sandbox"
   assert_out_contains "share"
-  assert_out_contains "rename"
+  assert_out_contains "Rename"
   assert_calls_lack "docker rm"
   assert_calls_lack "docker network connect"
   assert_calls_lack "docker run --rm"
@@ -140,7 +140,7 @@ test_derived_image_with_an_invalid_label_is_refused() {
 test_clean_removes_owned_containers_and_sidecars_but_keeps_volumes() {
   started_project
   reset_calls
-  run_abx clean --yes
+  ABX_CLAUDE_MD=off run_abx clean --yes
   assert_status 0
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-proxy"
@@ -156,7 +156,7 @@ test_clean_removes_owned_containers_and_sidecars_but_keeps_volumes() {
 test_clean_volumes_removes_the_project_volumes() {
   started_project
   reset_calls
-  run_abx clean --yes --volumes
+  ABX_CLAUDE_MD=off run_abx clean --yes --volumes
   assert_status 0
   assert_file_contains "$ABX_TEST_STATE/events" "removed volume p_claude-state"
   assert_file_contains "$ABX_TEST_STATE/events" "removed volume p_proxy-ca"
@@ -166,7 +166,7 @@ test_clean_volumes_refuses_with_a_foreign_container_present() {
   started_project
   container_add ctr-foreign agent "$AGENT_IMAGE" 2026-06-01T00:00:00Z true "$HOME/src/other/.agent-sandbox"
   reset_calls
-  run_abx clean --yes --volumes
+  ABX_CLAUDE_MD=off run_abx clean --yes --volumes
   assert_status 1
   assert_out_contains "other/.agent-sandbox"
   assert_eq "$(cat "$ABX_TEST_STATE/events")" "" "nothing removed"
@@ -176,7 +176,7 @@ test_clean_leaves_a_foreign_container_with_the_same_project_name_alone() {
   started_project
   container_add ctr-foreign agent "$AGENT_IMAGE" 2026-06-01T00:00:00Z true "$HOME/src/other/.agent-sandbox"
   reset_calls
-  run_abx clean --yes
+  ABX_CLAUDE_MD=off run_abx clean --yes
   assert_status 0
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
   assert_file_lacks "$ABX_TEST_STATE/events" "ctr-foreign"
@@ -186,7 +186,7 @@ test_clean_leaves_a_sidecar_that_belongs_to_another_directory() {
   ABX_CLAUDE_MD=off run_abx -p hi
   sidecar_add "$FORWARDER" "$HOME/src/other"
   reset_calls
-  run_abx clean --yes
+  ABX_CLAUDE_MD=off run_abx clean --yes
   assert_status 0
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
   assert_file_lacks "$ABX_TEST_STATE/events" "removed $FORWARDER"
@@ -206,7 +206,7 @@ test_clean_all_covers_every_agentbox_project() {
   image_add "$DERIVED"
   image_add "$AGENT_IMAGE"
   reset_calls
-  run_abx clean --all --yes --volumes --images
+  ABX_CLAUDE_MD=off run_abx clean --all --yes --volumes --images
   assert_status 0
   assert_file_contains "$ABX_TEST_STATE/events" "removed other-agent"
   assert_file_contains "$ABX_TEST_STATE/events" "removed legacy-agent"
@@ -225,7 +225,7 @@ test_clean_all_covers_every_agentbox_project() {
 test_clean_dry_run_removes_nothing() {
   started_project
   reset_calls
-  run_abx clean --dry-run --all --volumes --images
+  ABX_CLAUDE_MD=off run_abx clean --dry-run --all --volumes --images
   assert_status 0
   assert_out_contains "ctr-agent"
   assert_out_contains "Dry run"
@@ -235,7 +235,7 @@ test_clean_dry_run_removes_nothing() {
 test_clean_without_yes_on_non_interactive_input_removes_nothing() {
   started_project
   reset_calls
-  run_abx clean
+  ABX_CLAUDE_MD=off run_abx clean
   assert_status 1
   assert_out_contains "ctr-agent"
   assert_out_contains "--yes"
@@ -244,7 +244,7 @@ test_clean_without_yes_on_non_interactive_input_removes_nothing() {
 
 test_clean_images_needs_all() {
   started_project
-  run_abx clean --images --yes
+  ABX_CLAUDE_MD=off run_abx clean --images --yes
   assert_status 1
   assert_out_contains "needs --all"
 }
@@ -252,7 +252,7 @@ test_clean_images_needs_all() {
 test_clean_warns_about_a_running_session() {
   started_project
   mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions" && touch "$XDG_RUNTIME_DIR/abx/proj/sessions/$$"
-  run_abx clean --dry-run
+  ABX_CLAUDE_MD=off run_abx clean --dry-run
   assert_status 0
   assert_out_contains "session"
 }

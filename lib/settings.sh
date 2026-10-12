@@ -55,7 +55,7 @@ _settings_init_vars() {
 _write_abx_settings() {
   command -v python3 >/dev/null 2>&1 || die "python3 is needed to write $ABX_SETTINGS"
   local ports=""
-  if [ "$PORTS_OWNED" = true ] || [ "$(docker inspect -f '{{.State.Running}}' "$PORTS_CONTAINER" 2>/dev/null)" = true ]; then
+  if [ "$PORTS_OWNED" = true ] || _owned_sidecar_running "$PORTS_CONTAINER"; then
     ports="$PORTS_SPEC"
   fi
   python3 -I "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \

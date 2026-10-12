@@ -190,6 +190,10 @@ _settings_init_vars
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 case "$COMMAND" in
+  claude|shell|rebuild) _check_containers ;;
+esac
+
+case "$COMMAND" in
   claude)
     info "Project: $PROJECT_DIR${START_REL:+ (starting in ${START_REL#/})}"
     if [ "${ABX_CLAUDE_MD:-}" != off ] && [ -z "$(_claude_md_template)" ]; then

@@ -15,11 +15,6 @@ _image_init_vars() {
   IMAGE_EXTRAS="${ABX_IMAGE_EXTRAS:-$ABX_CONFIG_DIR/Dockerfile.extra}"
 }
 
-_agent_container() {
-  docker ps -q --filter "label=com.docker.compose.project=$PROJECT_NAME" \
-    --filter "label=com.docker.compose.service=agent" | head -n1
-}
-
 # Everything agentbox prints is kept in the probe log, since a failure here is otherwise opaque.
 _probe_container() {
   local raw
@@ -182,7 +177,7 @@ _write_image_state() {
 
 _stop_project_containers() {
   local ids
-  ids="$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")"
+  ids="$(_owned_ids)"
   if [ -n "$ids" ]; then
     # shellcheck disable=SC2086
     docker rm -f $ids >/dev/null
@@ -201,12 +196,19 @@ _reown_volumes() {
 }
 
 # Volumes the agent shares with another container (the proxy's CA and run directories) belong to
-# that container's user, so only volumes mounted by the agent alone are re-owned.
+# that container's user, so only volumes mounted by the agent alone are re-owned. While a container
+# of another directory has this project's name, none are: its volumes may be the same ones, and abx
+# doesn't inspect containers it doesn't own to find out.
 _agent_only_volumes() {
   local ctr="$1" other shared="" vol result=""
-  for other in $(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME"); do
-    case "$ctr" in "$other"*) continue ;; esac
-    shared="$shared $(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$other")"
+  if [ -n "$(_foreign_workdirs)" ]; then
+    echo "[warning] Containers of another directory use this project's name, so the agent's volumes are left as they are and may stay unwritable to it. Rename one of the two directories, then rerun abx." >&2
+    return 0
+  fi
+  for other in $(_owned_ids); do
+    if [ "$other" != "$ctr" ]; then
+      shared="$shared $(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$other")"
+    fi
   done
   for vol in $(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$ctr"); do
     case " $shared " in

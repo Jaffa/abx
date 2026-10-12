@@ -118,17 +118,24 @@ _explain_missing_agent() {
     echo "        Starting the sandbox printed:" >&2
     tail -n 15 "$ABX_STATE/agent-start.log" | sed 's/^/          /' >&2
   fi
-  echo "        Containers for project '$PROJECT_NAME':" >&2
-  docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" \
-    --format '          {{.Names}}  {{.Status}}' >&2 2>/dev/null
-  if [ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")" ]; then
-    echo "          (none: check 'docker ps -a' for this project's containers under another name)" >&2
+  local id name running
+  echo "        Containers for project '$PROJECT_NAME' in this directory:" >&2
+  if [ -z "$(_owned_containers)" ]; then
+    echo "          (none)" >&2
   fi
-  local name
-  for name in $(docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter status=exited --format '{{.Names}}'); do
-    echo "        Last lines from $name:" >&2
-    docker logs "$name" 2>&1 | tail -n 10 | sed 's/^/          /' >&2
-  done
+  while read -r id name; do
+    [ -n "$id" ] || continue
+    running="$(docker inspect -f '{{.State.Running}}' "$id" 2>/dev/null || true)"
+    if [ "$running" = true ]; then
+      echo "          $name  running" >&2
+    else
+      echo "          $name  stopped" >&2
+      echo "        Last lines from $name:" >&2
+      docker logs "$name" 2>&1 | tail -n 10 | sed 's/^/          /' >&2 || true
+    fi
+  done <<EOF
+$(_owned_containers)
+EOF
   exit 1
 }
 
@@ -163,15 +170,19 @@ _start_bedrock_gateway() {
   GATEWAY_NO_PROXY="${no_proxy:-localhost,127.0.0.1}"
   case ",$GATEWAY_NO_PROXY," in *",$GATEWAY_ALIAS,"*) ;; *) GATEWAY_NO_PROXY="$GATEWAY_NO_PROXY,$GATEWAY_ALIAS" ;; esac
 
-  if [ "$(docker inspect -f '{{.State.Running}}' "$GATEWAY_CONTAINER" 2>/dev/null)" = true ] && _other_gateway_sessions_alive; then
+  if [ "$(_sidecar_owner "$GATEWAY_CONTAINER")" = foreign ]; then
+    die "A container named $GATEWAY_CONTAINER belongs to another directory, so the Bedrock gateway can't use that name. Rename one of the two directories, then rerun abx."
+  fi
+  if _owned_sidecar_running "$GATEWAY_CONTAINER" && _other_gateway_sessions_alive; then
     debug "reusing the Bedrock gateway of another session"
     return 0
   fi
-  docker rm -f "$GATEWAY_CONTAINER" >/dev/null 2>&1 || true
+  _remove_owned_sidecar "$GATEWAY_CONTAINER"
   _ensure_signer_image
 
   nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$ctr")"
   docker run -d --name "$GATEWAY_CONTAINER" --label "abx.gateway-for=$PROJECT_NAME" \
+    --label "abx.project-dir=$PROJECT_DIR" \
     --network bridge --user "$(id -u):$(id -g)" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     -e "AWS_REGION=$BEDROCK_REGION" -e "ABX_SIGNER_PORT=$GATEWAY_PORT" \
@@ -182,7 +193,7 @@ _start_bedrock_gateway() {
       || echo "[warning] Couldn't connect the Bedrock gateway to network $net" >&2
   done
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    docker logs "$GATEWAY_CONTAINER" 2>&1 | grep -q 'forwarding Bedrock inference' && break
+    docker logs "$GATEWAY_CONTAINER" 2>&1 | grep 'forwarding Bedrock inference' >/dev/null && break
     if [ "$(docker inspect -f '{{.State.Running}}' "$GATEWAY_CONTAINER" 2>/dev/null)" != true ]; then
       docker logs "$GATEWAY_CONTAINER" 2>&1 | tail -n 10 >&2
       die "The Bedrock gateway exited during startup."
@@ -196,7 +207,7 @@ _stop_bedrock_gateway() {
   [ -f "$SESSIONS_DIR/$$" ] || return 0
   rm -f "$SESSIONS_DIR/$$"
   if ! _other_gateway_sessions_alive; then
-    docker rm -f "$GATEWAY_CONTAINER" >/dev/null 2>&1 || true
+    _remove_owned_sidecar "$GATEWAY_CONTAINER"
     rm -f "$CREDS_FILE"
   fi
 }

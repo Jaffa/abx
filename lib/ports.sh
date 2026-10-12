@@ -78,7 +78,12 @@ _start_port_forwarder() {
   local ports ctr nets net p err owner busy skipped="" attempt=0 args=()
   ports="$(_expand_ports "$PORTS_SPEC")"
 
-  if [ "$(docker inspect -f '{{.State.Running}}' "$PORTS_CONTAINER" 2>/dev/null)" = true ]; then
+  # A forwarder with this name from another directory is left alone, so the session goes on without ports.
+  if [ "$(_sidecar_owner "$PORTS_CONTAINER")" = foreign ]; then
+    echo "[warning] A container named $PORTS_CONTAINER belongs to another directory, so abx won't use it; continuing without published ports." >&2
+    return 0
+  fi
+  if _owned_sidecar_running "$PORTS_CONTAINER"; then
     owner="$(docker inspect -f '{{index .Config.Labels "abx.owner-pid"}}' "$PORTS_CONTAINER" 2>/dev/null)"
     if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
       PORTS_SPEC="$(docker inspect -f '{{index .Config.Labels "abx.ports-spec"}}' "$PORTS_CONTAINER" 2>/dev/null)"
@@ -86,7 +91,7 @@ _start_port_forwarder() {
       return 0
     fi
   fi
-  docker rm -f "$PORTS_CONTAINER" >/dev/null 2>&1 || true
+  _remove_owned_sidecar "$PORTS_CONTAINER"
   _ensure_forwarder_image || { echo "[warning] Couldn't build the port forwarder; continuing without published ports." >&2; return 0; }
 
   # The forwarder joins the agent's network, which exists only once the stack is up.
@@ -112,6 +117,7 @@ _start_port_forwarder() {
     for p in $ports; do args+=(-p "$PORTS_BIND:$p:$p"); done
     local -a run=(docker run -d --name "$PORTS_CONTAINER"
       --label "abx.ports-for=$PROJECT_NAME" --label "abx.owner-pid=$$" --label "abx.ports-spec=$PORTS_SPEC"
+      --label "abx.project-dir=$PROJECT_DIR"
       --network bridge --cap-drop ALL --security-opt no-new-privileges --read-only
       "${args[@]}" -e "PORTS=$ports" "$FORWARDER_IMAGE"
       sh -c 'for p in $PORTS; do socat TCP-LISTEN:"$p",fork,reuseaddr TCP:agent:"$p" & done; wait')
@@ -120,7 +126,7 @@ _start_port_forwarder() {
     if err="$("${run[@]}" 2>&1 >/dev/null)"; then break; fi
 
     printf '%s\n' "$err" >> "$ABX_STATE/ports.log"
-    docker rm -f "$PORTS_CONTAINER" >/dev/null 2>&1 || true
+    _remove_owned_sidecar "$PORTS_CONTAINER"
     busy="$(printf '%s' "$err" | sed -n 's/.*Bind for .*:\([0-9][0-9]*\) failed.*/\1/p' | head -n1)"
     attempt=$(( attempt + 1 ))
     if [ -n "$busy" ] && [ "$attempt" -le 20 ]; then
@@ -155,5 +161,5 @@ _start_port_forwarder() {
 }
 
 _stop_port_forwarder() {
-  if [ "$PORTS_OWNED" = true ]; then docker rm -f "$PORTS_CONTAINER" >/dev/null 2>&1 || true; fi
+  if [ "$PORTS_OWNED" = true ]; then _remove_owned_sidecar "$PORTS_CONTAINER"; fi
 }

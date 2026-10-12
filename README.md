@@ -9,7 +9,7 @@ abx
 
 abx is a launcher for [agent-sandbox](https://github.com/mattolson/agent-sandbox) (`agentbox`), which provides the isolation: a container that sees only your project, and a proxy that lets it reach only the domains you allow. abx adds the workflow around it: one command from anywhere in a project, a persistent setup per project, and some things agentbox doesn't do itself (yet).
 
-> **Status:** early (v0.9) and developed on Linux with Docker. It's written to work on macOS too, but has had less testing there. Issues and pull requests are welcome.
+> **Status:** early and developed on Linux with Docker. It's written to work on macOS too, but has had less testing there. Issues and pull requests are welcome.
 
 ## What you get
 

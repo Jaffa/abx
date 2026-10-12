@@ -186,3 +186,58 @@ test_old_uid_ok_is_deleted_without_migration() {
   assert_no_file .abx/uid-ok
   assert_file "$(state_dir)/uid-ok"
 }
+
+# The read-only .abx/ mount, so the agent can't write what the host reads or runs at container start.
+
+abx_mount_lines() {
+  grep -c 'target: /workspace/.abx  # abx: uid-remap' .agent-sandbox/compose/user.override.yml
+}
+
+test_abx_mount_is_added_to_agentbox_scaffold() {
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_status 0
+  local override=.agent-sandbox/compose/user.override.yml
+  assert_file_contains "$override" "source: \"$(pwd -P)/.abx\"  # abx: uid-remap"
+  assert_file_contains "$override" "target: /workspace/.abx  # abx: uid-remap"
+  assert_file_contains "$override" "read_only: true  # abx: uid-remap"
+  assert_file_contains "$override" "shell.d"
+  assert_eq "$(abx_mount_lines)" "1" "one mount"
+}
+
+test_abx_mount_is_applied_again_without_duplicating() {
+  ABX_CLAUDE_MD=off run_abx -p hi
+  reset_calls
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_eq "$(abx_mount_lines)" "1" "one mount after a second run"
+  assert_calls_lack "docker rm -f"
+}
+
+test_abx_mount_is_added_to_override_without_volumes() {
+  printf '%s\n' 'services:' '  agent:' '    environment:' '      FOO: bar' > "$ABX_TEST_STATE/override-scaffold"
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_status 0
+  assert_file_contains .agent-sandbox/compose/user.override.yml "    volumes:"
+  assert_file_contains .agent-sandbox/compose/user.override.yml "FOO: bar"
+  assert_eq "$(abx_mount_lines)" "1" "one mount"
+}
+
+test_abx_mount_is_restored_when_agentbox_ignores_it() {
+  state override-ignored yes
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_status 1
+  assert_out_contains "didn't pick up the new mount"
+  assert_file_lacks .agent-sandbox/compose/user.override.yml "abx: uid-remap"
+  assert_file_contains .agent-sandbox/compose/user.override.yml "shell.d"
+}
+
+test_abx_mount_recreates_containers_only_when_added() {
+  ABX_CLAUDE_MD=off run_abx -p hi
+  printf '%s\n' 'services:' '  agent:' '    environment:' '      FOO: bar' > .agent-sandbox/compose/user.override.yml
+  state agent-running yes
+  reset_calls
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
+  reset_calls
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_eq "$(wc -l < "$ABX_TEST_STATE/events" | tr -d ' ')" "0" "no containers removed when nothing changed"
+}

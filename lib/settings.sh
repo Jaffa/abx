@@ -7,7 +7,7 @@ CLAUDE_LOCAL_SETTINGS=".claude/settings.local.json"
 _remove_legacy_settings() {
   [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q '\.abx/' "$CLAUDE_LOCAL_SETTINGS" || return 0
   command -v python3 >/dev/null 2>&1 || return 0
-  python3 "$ABX_HOME/lib/clean_legacy_settings.py" "$CLAUDE_LOCAL_SETTINGS" || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
+  python3 -I "$ABX_HOME/lib/clean_legacy_settings.py" "$CLAUDE_LOCAL_SETTINGS" || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
 }
 
 # Inside the sandbox the project is always /workspace; the statusline reads its real name from here.
@@ -58,6 +58,6 @@ _write_abx_settings() {
   if [ "$PORTS_OWNED" = true ] || [ "$(docker inspect -f '{{.State.Running}}' "$PORTS_CONTAINER" 2>/dev/null)" = true ]; then
     ports="$PORTS_SPEC"
   fi
-  python3 "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
+  python3 -I "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
     "http://$GATEWAY_ALIAS:$GATEWAY_PORT" "$GATEWAY_NO_PROXY"
 }

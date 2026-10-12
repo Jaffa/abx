@@ -48,7 +48,7 @@ _override_snippet() {
 # agentbox seeds the override with its own content, so abx merges two keys into the agent service
 # rather than replacing the file, then checks the result through agentbox's merged configuration.
 _merge_override() {
-  python3 "$ABX_HOME/lib/merge_override.py" "$1" "$2"
+  python3 -I "$ABX_HOME/lib/merge_override.py" "$1" "$2"
 }
 
 _write_override() {

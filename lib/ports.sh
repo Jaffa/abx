@@ -64,7 +64,7 @@ _compress_ports() {
 # Prints the ports something on the host already listens on, by trying to bind each one.
 _host_ports_in_use() {
   command -v python3 >/dev/null 2>&1 || return 0
-  python3 "$ABX_HOME/lib/host_ports_in_use.py" "$PORTS_BIND" "$@"
+  python3 -I "$ABX_HOME/lib/host_ports_in_use.py" "$PORTS_BIND" "$@"
 }
 
 _without_port() {

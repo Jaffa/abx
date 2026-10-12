@@ -64,18 +64,7 @@ _compress_ports() {
 # Prints the ports something on the host already listens on, by trying to bind each one.
 _host_ports_in_use() {
   command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$PORTS_BIND" "$@" <<'PY'
-import socket, sys
-addr = sys.argv[1]
-for port in sys.argv[2:]:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind((addr, int(port)))
-    except OSError:
-        print(port)
-    finally:
-        sock.close()
-PY
+  python3 "$ABX_HOME/lib/host_ports_in_use.py" "$PORTS_BIND" "$@"
 }
 
 _without_port() {

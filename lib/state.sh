@@ -30,11 +30,24 @@ _state_file() {
   [ -f "$1" ]
 }
 
+# The first problem with the values of a derived-image record, printed as a reason; nothing is printed and the
+# result is success when they're all valid. Used for state files and for the labels of a derived image alike.
+# ORIG_USER, TARGET_UID and EXTRAS_HASH may be empty.
+_uid_remap_problem() { # BASE USER ORIG OLD TARGET HASH
+  if ! [[ "$1" =~ $STATE_IMAGE_RE ]]; then echo "BASE is not an image reference"; return 1; fi
+  if ! [[ "$2" =~ $STATE_USER_RE ]]; then echo "USER_NAME is not a user name"; return 1; fi
+  if ! [[ "$4" =~ $STATE_NUM_RE ]]; then echo "OLD_UID is not a number"; return 1; fi
+  if [ -n "$3" ] && ! [[ "$3" =~ $STATE_USER_RE ]]; then echo "ORIG_USER is not a user name"; return 1; fi
+  if [ -n "$5" ] && ! [[ "$5" =~ $STATE_NUM_RE ]]; then echo "TARGET_UID is not a number"; return 1; fi
+  if [ -n "$6" ] && ! [[ "$6" =~ $STATE_HASH_RE ]]; then echo "EXTRAS_HASH is not a hash"; return 1; fi
+  return 0
+}
+
 # Reads a derived-image state file. BASE, USER_NAME and OLD_UID are required. ORIG_USER, TARGET_UID and
 # EXTRAS_HASH may be empty, and callers apply their defaults. Every value is checked, and one bad value
 # discards the file. On success the values are set as globals, as the callers use them.
 _read_uid_remap() {
-  local f="$1" base user orig old target hash
+  local f="$1" base user orig old target hash problem
   _state_file "$f" || return 1
   base="$(_state_value BASE "$f")"
   user="$(_state_value USER_NAME "$f")"
@@ -42,12 +55,7 @@ _read_uid_remap() {
   old="$(_state_value OLD_UID "$f")"
   target="$(_state_value TARGET_UID "$f")"
   hash="$(_state_value EXTRAS_HASH "$f")"
-  if ! [[ "$base" =~ $STATE_IMAGE_RE ]]; then _refuse "$f" "BASE is not an image reference"; return 1; fi
-  if ! [[ "$user" =~ $STATE_USER_RE ]]; then _refuse "$f" "USER_NAME is not a user name"; return 1; fi
-  if ! [[ "$old" =~ $STATE_NUM_RE ]]; then _refuse "$f" "OLD_UID is not a number"; return 1; fi
-  if [ -n "$orig" ] && ! [[ "$orig" =~ $STATE_USER_RE ]]; then _refuse "$f" "ORIG_USER is not a user name"; return 1; fi
-  if [ -n "$target" ] && ! [[ "$target" =~ $STATE_NUM_RE ]]; then _refuse "$f" "TARGET_UID is not a number"; return 1; fi
-  if [ -n "$hash" ] && ! [[ "$hash" =~ $STATE_HASH_RE ]]; then _refuse "$f" "EXTRAS_HASH is not a hash"; return 1; fi
+  problem="$(_uid_remap_problem "$base" "$user" "$orig" "$old" "$target" "$hash")" || { _refuse "$f" "$problem"; return 1; }
   BASE="$base"; USER_NAME="$user"; ORIG_USER="$orig"; OLD_UID="$old"; TARGET_UID="$target"; EXTRAS_HASH="$hash"
 }
 

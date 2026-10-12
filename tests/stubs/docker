@@ -122,8 +122,8 @@ case "$1" in
         if [ "$3" = -f ]; then
           case "$4" in
             '{{.Config.User}}') cat "$S/image-user" 2>/dev/null || echo dev ;;
-            'index .Config.Labels "'*'"')
-              key="${4#*\"}"; key="${key%\"}"
+            '{{index .Config.Labels "'*'"}}')
+              key="${4#*\"}"; key="${key%%\"*}"
               awk -v k="$key" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$S/image-labels/$(tagfile "$name")" 2>/dev/null ;;
           esac
         fi ;;

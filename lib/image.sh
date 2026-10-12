@@ -118,9 +118,10 @@ _extras_hash() {
 }
 
 # Builds the image abx points the agent service at: the upstream image with the agent user
-# renumbered to target_uid (a no-op when it already matches), plus any image extras.
-_build_derived_image() {
-  local base="$1" user="$2" orig_user="$3" target_uid="$4" pull="${5:-false}" name repo tag dir md flags=()
+# renumbered to target_uid (a no-op when it already matches), plus any image extras. The labels
+# record the derived-image state, so it can be rebuilt if the state directory is lost.
+_build_derived_image() { # BASE USER ORIG_USER OLD_UID TARGET_UID [PULL]
+  local base="$1" user="$2" orig_user="$3" old_uid="$4" target_uid="$5" pull="${6:-false}" name repo tag dir md flags=() labels=()
   md="$(_claude_md_template)"
   name="${base##*/}"; name="${name%%@*}"
   repo="${name%%:*}"
@@ -161,8 +162,10 @@ EOF
   if [ -n "$md" ]; then cp "$md" "$dir/abx-CLAUDE.md"; fi
 
   if [ "$pull" = true ]; then flags=(--pull); fi
+  labels=(--label "abx.base=$base" --label "abx.user=$user" --label "abx.orig-user=${orig_user:-root}"
+    --label "abx.old-uid=$old_uid" --label "abx.target-uid=$target_uid")
   info "Building $REMAPPED_IMAGE$( _has_image_additions && printf ' with abx additions')..."
-  if ! docker build ${flags[@]+"${flags[@]}"} -t "$REMAPPED_IMAGE" \
+  if ! docker build ${flags[@]+"${flags[@]}"} ${labels[@]+"${labels[@]}"} -t "$REMAPPED_IMAGE" \
       --build-arg "BASE=$base" --build-arg "HOST_UID=$target_uid" \
       --build-arg "USER_NAME=$user" --build-arg "ORIG_USER=${orig_user:-root}" \
       "$dir" > "$ABX_STATE/build.log" 2>&1; then
@@ -219,6 +222,42 @@ _agent_only_volumes() {
   printf '%s' "$result"
 }
 
+# The value of label KEY on IMAGE, or nothing if the image has no such label.
+_image_label() {
+  docker image inspect -f "{{index .Config.Labels \"$2\"}}" "$1" 2>/dev/null || true
+}
+
+# Reads the derived-image record from the abx.* labels that _build_derived_image writes. On success it sets the same
+# values as _read_uid_remap, with no extras hash, since the labels don't record the extras. On failure it sets
+# RECORD_PROBLEM to the label that's missing or the reason it's invalid. Labels are text that anyone who can build
+# the image can write, so they're checked as state files are.
+_read_uid_remap_labels() { # IMAGE
+  local base user orig old target
+  base="$(_image_label "$1" abx.base)"
+  user="$(_image_label "$1" abx.user)"
+  orig="$(_image_label "$1" abx.orig-user)"
+  old="$(_image_label "$1" abx.old-uid)"
+  target="$(_image_label "$1" abx.target-uid)"
+  if [ -z "$base" ] || [ -z "$user" ] || [ -z "$orig" ] || [ -z "$old" ] || [ -z "$target" ]; then
+    RECORD_PROBLEM="a label is missing"
+    return 1
+  fi
+  RECORD_PROBLEM="$(_uid_remap_problem "$base" "$user" "$orig" "$old" "$target" none)" || return 1
+  BASE="$base"; USER_NAME="$user"; ORIG_USER="$orig"; OLD_UID="$old"; TARGET_UID="$target"; EXTRAS_HASH=none
+}
+
+# The agent runs a derived image that abx has no state record for, as after a lost state directory. The record is
+# rebuilt from the image's labels and written, and the image is then rebuilt from its base as usual. If a valid
+# record exists, its base is used. Sets BASE to the upstream image.
+_recover_derived_record() { # IMAGE
+  if _read_uid_remap "$UID_STATE"; then return 0; fi
+  if ! _read_uid_remap_labels "$1"; then
+    die "The agent runs $1, but abx has no record of building it, and the image's abx.* labels are missing or invalid ($RECORD_PROBLEM). Run 'abx clean', then rerun abx."
+  fi
+  _write_uid_state "$UID_STATE" "$BASE" "$USER_NAME" "$ORIG_USER" "$OLD_UID" "$TARGET_UID" none
+  info "Recovered the derived-image record for $1 from its labels."
+}
+
 # First switch of a project to a derived image, from the running upstream container.
 _apply_derived_image() {
   local c_uid="$1" c_user="$2" target_uid="$3" ctr base orig_user volumes=""
@@ -226,7 +265,7 @@ _apply_derived_image() {
   [ -n "$ctr" ] || die "Couldn't find the running agent container for project '$PROJECT_NAME' to inspect."
   base="$(docker inspect -f '{{.Config.Image}}' "$ctr")"
   case "$base" in
-    abx/*) die "The agent already runs $base but abx has no record of building it. Remove the lines marked '$OVERRIDE_MARKER' with 'agentbox edit compose', then rerun abx." ;;
+    abx/*) _recover_derived_record "$base"; base="$BASE" ;;
   esac
   orig_user="$(docker image inspect -f '{{.Config.User}}' "$base" 2>/dev/null || true)"
   if [ "$c_uid" != "$target_uid" ]; then
@@ -234,7 +273,7 @@ _apply_derived_image() {
     info "The agent runs as UID $c_uid but your files belong to UID $target_uid, so it can't write to the project. Fixing..."
   fi
 
-  _build_derived_image "$base" "$c_user" "$orig_user" "$target_uid"
+  _build_derived_image "$base" "$c_user" "$orig_user" "$c_uid" "$target_uid"
   _write_override "$REMAPPED_IMAGE"
   _stop_project_containers
   if [ -n "$volumes" ]; then
@@ -251,7 +290,7 @@ _apply_derived_image() {
 _refresh_derived_image() {
   local pull="$1"
   # The state was checked by _read_uid_remap, and is never sourced.
-  _build_derived_image "$BASE" "$USER_NAME" "$ORIG_USER" "${TARGET_UID:-$HOST_UID}" "$pull"
+  _build_derived_image "$BASE" "$USER_NAME" "$ORIG_USER" "$OLD_UID" "${TARGET_UID:-$HOST_UID}" "$pull"
   _write_override "$REMAPPED_IMAGE"
   _stop_project_containers
   _write_image_state "$BASE" "$USER_NAME" "$ORIG_USER" "$OLD_UID" "${TARGET_UID:-$HOST_UID}"

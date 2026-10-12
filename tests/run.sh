@@ -12,7 +12,7 @@ echo "── syntax"
 for f in "$REPO_DIR"/abx.sh "$REPO_DIR"/lib/*.sh "$REPO_DIR"/examples/*.sh "$REPO_DIR"/resources/*.sh "$TESTS_DIR"/stubs/* "$TESTS_DIR"/lib/*.sh "$TESTS_DIR"/shell/*.sh; do
   if bash -n "$f"; then passed=$((passed + 1)); else failed=$((failed + 1)); failures="$failures syntax:$f"; fi
 done
-for f in "$REPO_DIR"/resources/*.py "$TESTS_DIR"/python/*.py; do
+for f in "$REPO_DIR"/lib/*.py "$REPO_DIR"/resources/*.py "$TESTS_DIR"/python/*.py; do
   if python3 -m py_compile "$f"; then passed=$((passed + 1)); else failed=$((failed + 1)); failures="$failures syntax:$f"; fi
 done
 if command -v shellcheck >/dev/null 2>&1; then

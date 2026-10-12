@@ -7,26 +7,7 @@ CLAUDE_LOCAL_SETTINGS=".claude/settings.local.json"
 _remove_legacy_settings() {
   [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q '\.abx/' "$CLAUDE_LOCAL_SETTINGS" || return 0
   command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$CLAUDE_LOCAL_SETTINGS" <<'PY' || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
-import json, os, sys
-path = sys.argv[1]
-with open(path) as f:
-    data = json.load(f)
-if data.get("awsCredentialExport") == "cat .abx/aws-credentials.json":
-    del data["awsCredentialExport"]
-    env = data.get("env", {})
-    for key in ("CLAUDE_CODE_USE_BEDROCK", "AWS_REGION"):
-        env.pop(key, None)
-    if not env:
-        data.pop("env", None)
-status = data.get("statusLine")
-if isinstance(status, dict) and ".abx/statusline.sh" in str(status.get("command", "")):
-    del data["statusLine"]
-with open(path + ".tmp", "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-os.replace(path + ".tmp", path)
-PY
+  python3 "$ABX_HOME/lib/clean_legacy_settings.py" "$CLAUDE_LOCAL_SETTINGS" || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
 }
 
 # Inside the sandbox the project is always /workspace; the statusline reads its real name from here.

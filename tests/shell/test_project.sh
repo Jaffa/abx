@@ -33,7 +33,7 @@ test_reports_docker_daemon_down() {
 test_first_run_initialises_with_template_policy() {
   run_abx -p hi
   assert_status 0
-  assert_calls_contain "agentbox init --agent claude --mode cli --name proj"
+  assert_calls_contain "agentbox init --agent claude --mode cli --name $PROJ_NAME"
   assert_out_contains "Applied $ABX_TEMPLATE_DIR/user.policy.yaml"
   assert_file_contains .agent-sandbox/policy/user.policy.yaml "docs.example.com"
   assert_file_contains .agent-sandbox/policy/user.policy.yaml.generated "generated.example.com"
@@ -105,4 +105,38 @@ test_shell_starts_in_subdirectory() {
 test_records_project_name_for_statusline() {
   run_abx -p hi
   assert_eq "$(cat .abx/project-name)" "proj" "project name"
+}
+
+test_new_project_name_is_its_directory_name_and_a_hash_of_its_path() {
+  run_abx -p hi
+  assert_status 0
+  [[ "$PROJ_NAME" =~ ^proj-[0-9a-f]{8}$ ]] || fail "name should be proj- and eight hex digits: $PROJ_NAME"
+  assert_calls_contain "--name $PROJ_NAME"
+  assert_file_contains "$(state_dir)/project-name" "$PROJ_NAME"
+}
+
+test_same_named_directories_get_different_names() {
+  run_abx -p hi
+  local first="$PROJ_NAME" elsewhere="$HOME/elsewhere/proj" second
+  mkdir -p "$elsewhere" && cd "$elsewhere" && git init -q .
+  second="$(compose_name "$elsewhere")"
+  reset_calls
+  run_abx -p hi
+  assert_status 0
+  [ "$first" != "$second" ] || fail "two directories named proj got the same name"
+  assert_calls_contain "agentbox init --agent claude --mode cli --name $second"
+}
+
+test_existing_sandbox_keeps_its_directory_name() {
+  mkdir -p .agent-sandbox
+  run_abx --ports=47210 -p hi
+  assert_status 0
+  assert_calls_contain "docker run -d --name abx-ports-proj "
+}
+
+test_recorded_project_name_is_kept() {
+  mkdir -p "$(state_dir)" && printf 'proj-cafe0000\n' > "$(state_dir)/project-name"
+  run_abx -p hi
+  assert_status 0
+  assert_calls_contain "agentbox init --agent claude --mode cli --name proj-cafe0000"
 }

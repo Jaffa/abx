@@ -1,7 +1,5 @@
 # Session-scoped port publishing. High port numbers avoid clashing with services on the test machine.
 
-FORWARDER=abx-ports-proj
-
 test_ports_published_on_localhost_and_reported_to_claude() {
   run_abx --ports=47100-47102 -p hi
   assert_status 0

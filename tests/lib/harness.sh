@@ -21,6 +21,9 @@ setup() {
   export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=t@example.com
   state probe "1000 dev writable"
   new_project proj
+  # The Compose project name this directory gets, and the sidecar names built from it.
+  PROJ_NAME="$(compose_name "$PROJECT")"; export PROJ_NAME
+  GATEWAY="abx-gateway-$PROJ_NAME"; FORWARDER="abx-ports-$PROJ_NAME"
 }
 
 teardown() {
@@ -48,6 +51,13 @@ state_dir() {
   key="$(printf '%s' "$(basename "$dir")" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
   printf '%s/abx/%s-%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$key" "$(printf '%s' "$dir" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
 }
+# compose_name DIR: the Compose project name abx gives a new project in DIR, its directory's name and the first eight
+# hex digits of a hash of its path (see _project_name_init in lib/project.sh).
+compose_name() {
+  local dir
+  dir="$(cd "$1" && pwd -P)"
+  printf '%s-%s' "$(basename "$dir")" "$(printf '%s' "$dir" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
+}
 settings_json() { python3 -c "import json,sys; d=json.load(open('$PROJECT/.abx/settings.json')); print(eval(sys.argv[1]))" "$1"; }
 
 # The physical path abx uses for this test's project.
@@ -59,7 +69,7 @@ project_dir() { (cd "$PROJECT" && pwd -P); }
 container_add() {
   local name="$1" service="${2:-agent}" image="${3:-ghcr.io/mattolson/agent-sandbox-claude:latest}" \
         created="${4:-2026-01-01T00:00:00Z}" running="${5:-true}" wd="${6:-$(project_dir)/.agent-sandbox}" \
-        project="${7:-proj}"
+        project="${7:-$PROJ_NAME}"
   container_drop "$name"
   printf '%s %s %s %s %s %s %s %s\n' "$name" "$name" "$image" "$project" "$service" "$wd" "$created" "$running" \
     >> "$ABX_TEST_STATE/containers"

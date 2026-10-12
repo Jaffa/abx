@@ -1,7 +1,5 @@
 # Bedrock mode: the signing gateway, credential handling and session sharing.
 
-GATEWAY=abx-gateway-proj
-
 test_bedrock_routes_through_gateway() {
   run_abx --bedrock -p hi
   assert_status 0
@@ -20,22 +18,22 @@ test_gateway_container_is_hardened() {
   case "$args" in *"--read-only"*) ;; *) fail "gateway should have a read-only filesystem: $args" ;; esac
   case "$args" in *"--cap-drop ALL"*) ;; *) fail "gateway should drop all capabilities: $args" ;; esac
   case "$args" in *"no-new-privileges"*) ;; *) fail "gateway should forbid privilege escalation: $args" ;; esac
-  case "$args" in *"-v $XDG_RUNTIME_DIR/abx/proj/creds:/run/abx-credentials:ro"*) ;; *) fail "credentials should be mounted read-only: $args" ;; esac
+  case "$args" in *"-v $XDG_RUNTIME_DIR/abx/$PROJ_NAME/creds:/run/abx-credentials:ro"*) ;; *) fail "credentials should be mounted read-only: $args" ;; esac
   case "$args" in *"-p "*) fail "the gateway must not publish ports: $args" ;; esac
 }
 
 test_credentials_stay_out_of_project_and_are_private() {
   mkdir -p .abx && printf '{"old":"credentials"}' > .abx/aws-credentials.json
   cat > "$ABX_TEST_STATE/exec-hook" <<'HOOK'
-stat -c '%a %n' "$XDG_RUNTIME_DIR/abx" "$XDG_RUNTIME_DIR/abx/proj" "$XDG_RUNTIME_DIR/abx/proj/creds" \
-  "$XDG_RUNTIME_DIR/abx/proj/creds/aws-credentials.json" > "$ABX_TEST_STATE/perms" 2>&1 \
-  || ls -ld "$XDG_RUNTIME_DIR/abx/proj/creds/aws-credentials.json" > "$ABX_TEST_STATE/perms"
+stat -c '%a %n' "$XDG_RUNTIME_DIR/abx" "$XDG_RUNTIME_DIR/abx/$PROJ_NAME" "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/creds" \
+  "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/creds/aws-credentials.json" > "$ABX_TEST_STATE/perms" 2>&1 \
+  || ls -ld "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/creds/aws-credentials.json" > "$ABX_TEST_STATE/perms"
 HOOK
   run_abx --bedrock -p hi
   assert_no_file .abx/aws-credentials.json
   ! grep -rq "ASIATEST" "$PROJECT" || fail "credentials found inside the project"
   assert_eq "$(awk '{print $1}' "$ABX_TEST_STATE/perms" | tr '\n' ' ')" "700 700 700 600 " "permissions while running"
-  assert_no_file "$XDG_RUNTIME_DIR/abx/proj/creds/aws-credentials.json"
+  assert_no_file "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/creds/aws-credentials.json"
   assert_file_contains "$ABX_TEST_STATE/events" "removed $GATEWAY"
 }
 
@@ -58,8 +56,8 @@ test_expired_login_is_reported() {
 }
 
 test_live_concurrent_session_shares_gateway() {
-  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions"
-  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/$$"
+  mkdir -p "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions"
+  touch "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions/$$"
   sidecar_add "$GATEWAY"
   run_abx --bedrock -p hi
   assert_calls_lack "docker run -d --name $GATEWAY"
@@ -67,12 +65,12 @@ test_live_concurrent_session_shares_gateway() {
 }
 
 test_dead_session_does_not_hold_gateway() {
-  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions"
-  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/999999"
+  mkdir -p "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions"
+  touch "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions/999999"
   sidecar_add "$GATEWAY"
   run_abx --bedrock -p hi
   assert_calls_contain "docker run -d --name $GATEWAY"
-  assert_no_file "$XDG_RUNTIME_DIR/abx/proj/sessions/999999"
+  assert_no_file "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions/999999"
   assert_file_contains "$ABX_TEST_STATE/events" "removed $GATEWAY"
 }
 

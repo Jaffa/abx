@@ -1,8 +1,6 @@
 # Container ownership and selection, derived-image labels and recovery, and 'abx clean'. Containers are seeded in the
 # docker stub's table (tests/stubs/docker); a project's own containers are the ones in its .agent-sandbox/.
 
-GATEWAY=abx-gateway-proj
-FORWARDER=abx-ports-proj
 AGENT_IMAGE=ghcr.io/mattolson/agent-sandbox-claude:latest
 DERIVED=abx/agent-sandbox-claude-uid1000:latest
 
@@ -11,8 +9,8 @@ started_project() {
   ABX_CLAUDE_MD=off run_abx -p hi
   sidecar_add "$GATEWAY"
   sidecar_add "$FORWARDER"
-  volume_add p_claude-state proj
-  volume_add p_proxy-ca proj
+  volume_add p_claude-state "$PROJ_NAME"
+  volume_add p_proxy-ca "$PROJ_NAME"
 }
 
 # ── which containers abx uses ──────────────────────────────────────────────────
@@ -251,7 +249,7 @@ test_clean_images_needs_all() {
 
 test_clean_warns_about_a_running_session() {
   started_project
-  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions" && touch "$XDG_RUNTIME_DIR/abx/proj/sessions/$$"
+  mkdir -p "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions" && touch "$XDG_RUNTIME_DIR/abx/$PROJ_NAME/sessions/$$"
   ABX_CLAUDE_MD=off run_abx clean --dry-run
   assert_status 0
   assert_out_contains "session"

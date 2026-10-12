@@ -52,9 +52,33 @@ _exclude_path() {
 
 _exclude_from_git() { _exclude_path '.agent-sandbox/'; }
 
+# The name this project's containers, volumes and sidecars carry. A project set up by this version is named for its
+# directory and eight hex digits of a hash of its path, so two directories with the same name never share containers.
+# A project keeps the name it has: the one recorded in its state directory, or else its directory's name, which the
+# projects set up before this version have.
+_project_name_init() {
+  local stem
+  if _state_file "$ABX_STATE/project-name"; then
+    PROJECT_NAME="$(cat "$ABX_STATE/project-name")"
+    if [[ "$PROJECT_NAME" =~ $DOCKER_PROJECT_RE ]]; then return 0; fi
+    _refuse "$ABX_STATE/project-name" "the project name is not in the expected format"
+  fi
+  if [ -d "$PROJECT_DIR/.agent-sandbox" ]; then
+    PROJECT_NAME="$PROJECT_DIR_NAME"
+    return 0
+  fi
+  # Compose names must start with a letter or digit, so leading dashes and underscores are dropped.
+  stem="$(printf '%s' "$PROJECT_DIR_NAME" | sed 's/^[-_]*//')"
+  [ -n "$stem" ] || stem=project
+  PROJECT_NAME="$stem-$(printf '%s' "$PROJECT_DIR" | _sha16 | cut -c1-8)"
+}
+
 _init_project() {
   info "First run in $PROJECT_DIR: initialising the sandbox..."
   mkdir -p "$ABX_DIR"
+  # Recorded before agentbox runs, so a failed init still leaves the name: the next run must not take the
+  # directory's name for a sandbox set up earlier.
+  printf '%s\n' "$PROJECT_NAME" > "$ABX_STATE/project-name"
   agentbox init "${ABX_INIT_ARGS[@]}" --name "$PROJECT_NAME" \
     || die "agentbox init failed. Run 'abx check' to confirm the init flags."
 

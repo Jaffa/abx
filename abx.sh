@@ -156,8 +156,9 @@ if [[ "$PROJECT_DIR" = "/" || "$PROJECT_DIR" = "$HOME_PHYSICAL" || "$PROJECT_DIR
   die "Refusing to sandbox '$PROJECT_DIR': run abx from inside a project directory."
 fi
 
-PROJECT_NAME="$(printf '%s' "$(basename "$PROJECT_DIR")" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
-debug "project: $PROJECT_DIR (name: $PROJECT_NAME)"
+# The directory's name as a state directory and a Compose name are built from it; PROJECT_NAME, set once the state
+# directory exists, is the name the containers carry.
+PROJECT_DIR_NAME="$(printf '%s' "$(basename "$PROJECT_DIR")" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
 
 # Claude starts in the same subdirectory inside the container, as if '/cd' had been run there.
 START_DIR="$(pwd -P)"
@@ -173,9 +174,12 @@ ABX_DIR=".abx"
 # with the same name in different places don't share it. See lib/state.sh.
 ABX_STATE_KEY="$(printf '%s' "$PROJECT_DIR" | _sha16 | cut -c1-8 || true)"
 [ -n "$ABX_STATE_KEY" ] || die "Couldn't hash the project path, so there's no state directory. Install sha256sum or shasum."
-ABX_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/abx/$PROJECT_NAME-$ABX_STATE_KEY"
+ABX_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/abx/$PROJECT_DIR_NAME-$ABX_STATE_KEY"
 mkdir -p "$ABX_STATE"
 chmod 700 "$ABX_STATE"
+
+_project_name_init
+debug "project: $PROJECT_DIR (name: $PROJECT_NAME)"
 
 if [ ! -d .agent-sandbox ]; then
   case "$COMMAND" in

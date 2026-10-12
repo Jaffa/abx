@@ -21,24 +21,6 @@ _find_project_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd -P
 }
 
-_write_default_template() {
-  mkdir -p "$TEMPLATE_DIR"
-  cat > "$POLICY_TEMPLATE" <<'EOF'
-# Personal default policy, copied into each project by abx on first use.
-# Check docs/policy/schema.md for whether an entry also matches subdomains.
-domains:
-  - registry.npmjs.org
-  - pypi.org
-  - files.pythonhosted.org
-  - api.osv.dev
-  - docs.aws.amazon.com
-  - developer.mozilla.org
-  - docs.python.org
-  - nodejs.org
-EOF
-  info "Created a default policy template at $POLICY_TEMPLATE; edit it to change future projects."
-}
-
 _exclude_path() {
   local exclude=".git/info/exclude"
   [ -d .git ] || return 0
@@ -82,23 +64,27 @@ _init_project() {
   agentbox init "${ABX_INIT_ARGS[@]}" --name "$PROJECT_NAME" \
     || die "agentbox init failed. Run 'abx check' to confirm the init flags."
 
-  [ -f "$POLICY_TEMPLATE" ] || _write_default_template
-  mkdir -p .agent-sandbox/policy
-  if [ -f .agent-sandbox/policy/user.policy.yaml ]; then
-    cp .agent-sandbox/policy/user.policy.yaml .agent-sandbox/policy/user.policy.yaml.generated
-  fi
-  cp "$POLICY_TEMPLATE" .agent-sandbox/policy/user.policy.yaml
-  # An invalid policy stops the proxy, and with it the whole sandbox, so it's checked before use.
-  if agentbox policy config > "$ABX_STATE/policy-check.log" 2>&1; then
-    info "Applied $POLICY_TEMPLATE as this project's policy."
+  # Without a template, agentbox's own policy stands, as it does without abx.
+  if [ ! -f "$POLICY_TEMPLATE" ]; then
+    debug "no policy template at $POLICY_TEMPLATE; keeping agentbox's policy"
   else
-    echo "[warning] agentbox rejected the policy template $POLICY_TEMPLATE:" >&2
-    tail -n 5 "$ABX_STATE/policy-check.log" | sed 's/^/          /' >&2
-    if [ -f .agent-sandbox/policy/user.policy.yaml.generated ]; then
-      cp .agent-sandbox/policy/user.policy.yaml.generated .agent-sandbox/policy/user.policy.yaml
-      echo "          Keeping agentbox's own policy for this project; fix the template, then 'abx policy'." >&2
+    mkdir -p .agent-sandbox/policy
+    if [ -f .agent-sandbox/policy/user.policy.yaml ]; then
+      cp .agent-sandbox/policy/user.policy.yaml .agent-sandbox/policy/user.policy.yaml.generated
+    fi
+    cp "$POLICY_TEMPLATE" .agent-sandbox/policy/user.policy.yaml
+    # An invalid policy stops the proxy, and with it the whole sandbox, so it's checked before use.
+    if agentbox policy config > "$ABX_STATE/policy-check.log" 2>&1; then
+      info "Applied $POLICY_TEMPLATE as this project's policy."
     else
-      die "No generated policy to fall back on. Fix the template, then rerun abx."
+      echo "[warning] agentbox rejected the policy template $POLICY_TEMPLATE:" >&2
+      tail -n 5 "$ABX_STATE/policy-check.log" | sed 's/^/          /' >&2
+      if [ -f .agent-sandbox/policy/user.policy.yaml.generated ]; then
+        cp .agent-sandbox/policy/user.policy.yaml.generated .agent-sandbox/policy/user.policy.yaml
+        echo "          Keeping agentbox's own policy for this project; fix the template, then 'abx policy'." >&2
+      else
+        die "No generated policy to fall back on. Fix the template, then rerun abx."
+      fi
     fi
   fi
 

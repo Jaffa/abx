@@ -48,6 +48,15 @@ test_invalid_template_keeps_generated_policy() {
   assert_file_contains .agent-sandbox/policy/user.policy.yaml "generated.example.com"
 }
 
+test_without_template_keeps_agentbox_policy() {
+  rm -f "$ABX_TEMPLATE_DIR/user.policy.yaml"
+  run_abx -p hi
+  assert_status 0
+  assert_no_file "$ABX_TEMPLATE_DIR/user.policy.yaml"
+  assert_file_contains .agent-sandbox/policy/user.policy.yaml "generated.example.com"
+  assert_no_file .agent-sandbox/policy/user.policy.yaml.generated
+}
+
 test_excludes_abx_files_from_git_without_gitignore() {
   run_abx -p hi
   assert_file_contains .git/info/exclude ".agent-sandbox/"

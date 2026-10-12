@@ -1,0 +1,12 @@
+domains:
+  # Package registries are deliberately off by default upstream; these are your choice
+  - registry.npmjs.org
+  - pypi.org
+  - files.pythonhosted.org
+  # Dependency vetting
+  - api.osv.dev
+  # Reference documentation
+  - docs.aws.amazon.com
+  - developer.mozilla.org
+  - docs.python.org
+  - nodejs.org

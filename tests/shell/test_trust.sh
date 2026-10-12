@@ -100,3 +100,89 @@ test_uid_ok_in_project_is_not_trusted() {
   ABX_CLAUDE_MD=off run_abx -p hi
   assert_calls_contain "docker build"
 }
+
+# The state directory: host-only, private, and the home of everything abx reads back.
+
+test_state_dir_is_private() {
+  run_abx -p hi
+  assert_eq "$(ls -ld "$(state_dir)" | cut -c1-10)" "drwx------" "state directory mode"
+}
+
+test_logs_and_host_state_are_kept_in_state_dir() {
+  state probe "501 dev readonly"
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_file "$(state_dir)/probe.log"
+  assert_file "$(state_dir)/uid-ok"
+  assert_no_file .abx/probe.log
+  assert_no_file .abx/uid-ok
+}
+
+test_old_uid_remap_is_migrated_when_valid() {
+  mkdir -p .abx
+  printf '%s\n' 'BASE=ghcr.io/mattolson/agent-sandbox-claude:latest' 'USER_NAME=dev' 'ORIG_USER=' \
+    'OLD_UID=501' 'TARGET_UID=1000' 'EXTRAS_HASH=none' > .abx/uid-remap.env
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_out_contains "Moved the derived-image state from .abx/"
+  assert_file_contains "$(state_dir)/uid-remap.env" "OLD_UID=501"
+  assert_no_file .abx/uid-remap.env
+}
+
+test_invalid_old_uid_remap_is_discarded() {
+  mkdir -p .abx
+  printf '%s\n' 'BASE=x; touch "$ABX_TEST_STATE/pwned"' 'USER_NAME=dev' 'OLD_UID=501' > .abx/uid-remap.env
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_out_contains "Discarded .abx/uid-remap.env"
+  assert_no_file .abx/uid-remap.env
+  assert_no_file "$(state_dir)/uid-remap.env"
+  assert_no_file "$ABX_TEST_STATE/pwned"
+}
+
+test_invalid_state_dir_uid_remap_is_discarded_on_rebuild() {
+  run_abx -p hi
+  mkdir -p "$(state_dir)"
+  printf '%s\n' 'BASE=x; touch "$ABX_TEST_STATE/pwned"' 'USER_NAME=dev' 'OLD_UID=501' > "$(state_dir)/uid-remap.env"
+  run_abx rebuild
+  assert_out_contains "Discarded $(state_dir)/uid-remap.env"
+  assert_no_file "$(state_dir)/uid-remap.env"
+  assert_no_file "$ABX_TEST_STATE/pwned"
+}
+
+test_old_bedrock_profile_is_migrated_when_valid() {
+  mkdir -p .abx && printf 'prof-1\n' > .abx/bedrock-profile
+  run_abx -p hi
+  assert_eq "$(cat "$(state_dir)/bedrock-profile")" "prof-1" "migrated profile"
+  assert_no_file .abx/bedrock-profile
+  assert_calls_contain "export-credentials --profile prof-1"
+  assert_eq "$(settings_json "d['env']['CLAUDE_CODE_USE_BEDROCK']")" "1" "Bedrock stays on"
+}
+
+test_old_bedrock_profile_is_discarded_when_invalid() {
+  mkdir -p .abx && printf '%s\n' 'x;touch "$ABX_TEST_STATE/pwned"' > .abx/bedrock-profile
+  run_abx -p hi
+  assert_out_contains "Discarded .abx/bedrock-profile"
+  assert_no_file .abx/bedrock-profile
+  assert_no_file "$(state_dir)/bedrock-profile"
+  assert_eq "$(settings_json "'CLAUDE_CODE_USE_BEDROCK' in d.get('env', {})")" "False" "Bedrock stays off"
+  assert_no_file "$ABX_TEST_STATE/pwned"
+}
+
+test_no_bedrock_also_removes_old_profile() {
+  mkdir -p .abx && printf 'prof-1\n' > .abx/bedrock-profile
+  run_abx --no-bedrock -p hi
+  assert_no_file .abx/bedrock-profile
+  assert_no_file "$(state_dir)/bedrock-profile"
+}
+
+test_existing_state_copy_wins_over_old_file() {
+  mkdir -p .abx "$(state_dir)" && printf 'prof-1\n' > .abx/bedrock-profile && printf 'prof-2\n' > "$(state_dir)/bedrock-profile"
+  run_abx -p hi
+  assert_eq "$(cat "$(state_dir)/bedrock-profile")" "prof-2" "state copy kept"
+  assert_no_file .abx/bedrock-profile
+}
+
+test_old_uid_ok_is_deleted_without_migration() {
+  mkdir -p .abx && printf '1000\n' > .abx/uid-ok
+  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_no_file .abx/uid-ok
+  assert_file "$(state_dir)/uid-ok"
+}

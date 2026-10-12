@@ -80,7 +80,7 @@ _start_port_forwarder() {
 
   # A forwarder with this name from another directory is left alone, so the session goes on without ports.
   if [ "$(_sidecar_owner "$PORTS_CONTAINER")" = foreign ]; then
-    echo "[warning] A container named $PORTS_CONTAINER belongs to another directory, so abx won't use it; continuing without published ports." >&2
+    echo "[warning] A container named $PORTS_CONTAINER belongs to another directory, or to an earlier abx without its project label, so abx won't use it. Continuing without published ports; if it's stale, remove it with docker rm." >&2
     return 0
   fi
   if _owned_sidecar_running "$PORTS_CONTAINER"; then

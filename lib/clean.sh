@@ -42,7 +42,7 @@ EOF
   for name in "abx-gateway-$PROJECT_NAME" "abx-ports-$PROJECT_NAME"; do
     case "$(_sidecar_owner "$name")" in
       owned) CLEAN_CONTAINERS+=("$name $name") ;;
-      foreign) CLEAN_NOTES+=("$name belongs to another directory, so it's left alone.") ;;
+      foreign) CLEAN_NOTES+=("$name belongs to another directory, or to an earlier abx, so it's left alone.") ;;
     esac
   done
   while read -r net; do

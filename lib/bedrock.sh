@@ -171,7 +171,7 @@ _start_bedrock_gateway() {
   case ",$GATEWAY_NO_PROXY," in *",$GATEWAY_ALIAS,"*) ;; *) GATEWAY_NO_PROXY="$GATEWAY_NO_PROXY,$GATEWAY_ALIAS" ;; esac
 
   if [ "$(_sidecar_owner "$GATEWAY_CONTAINER")" = foreign ]; then
-    die "A container named $GATEWAY_CONTAINER belongs to another directory, so the Bedrock gateway can't use that name. Rename one of the two directories, then rerun abx."
+    die "A container named $GATEWAY_CONTAINER belongs to another directory, or to an earlier abx without its project label, so the Bedrock gateway can't use that name. If it's stale, remove it with 'docker rm -f $GATEWAY_CONTAINER' and rerun abx; otherwise rename one of the two directories."
   fi
   if _owned_sidecar_running "$GATEWAY_CONTAINER" && _other_gateway_sessions_alive; then
     debug "reusing the Bedrock gateway of another session"

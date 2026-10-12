@@ -66,10 +66,9 @@ test_other_docker_error_reported_and_session_continues() {
 }
 
 test_live_owner_shares_forwarder_and_its_ports() {
-  mkdir -p "$ABX_TEST_STATE/running" "$ABX_TEST_STATE/labels"
-  touch "$ABX_TEST_STATE/running/$FORWARDER"
-  printf '%s' "$$" > "$ABX_TEST_STATE/labels/$FORWARDER.owner-pid"
-  printf '47160-47161' > "$ABX_TEST_STATE/labels/$FORWARDER.ports-spec"
+  sidecar_add "$FORWARDER"
+  printf '%s' "$$" > "$ABX_TEST_STATE/labels/$FORWARDER.abx.owner-pid"
+  printf '47160-47161' > "$ABX_TEST_STATE/labels/$FORWARDER.abx.ports-spec"
   run_abx --ports=47170 -p hi
   assert_out_contains "Ports 47160-47161 are already published by another abx session"
   assert_eq "$(settings_json "d['env']['ABX_PUBLISHED_PORTS']")" "47160-47161" "shared ports"
@@ -77,9 +76,8 @@ test_live_owner_shares_forwarder_and_its_ports() {
 }
 
 test_forwarder_left_by_crashed_session_is_replaced() {
-  mkdir -p "$ABX_TEST_STATE/running" "$ABX_TEST_STATE/labels"
-  touch "$ABX_TEST_STATE/running/$FORWARDER"
-  printf '999999' > "$ABX_TEST_STATE/labels/$FORWARDER.owner-pid"
+  sidecar_add "$FORWARDER"
+  printf '999999' > "$ABX_TEST_STATE/labels/$FORWARDER.abx.owner-pid"
   run_abx --ports=47180 -p hi
   assert_calls_contain "docker run -d --name $FORWARDER"
 }

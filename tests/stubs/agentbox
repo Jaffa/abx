@@ -1,19 +1,48 @@
 #!/bin/bash
 # Stand-in for the agentbox CLI. Behaviour is driven by files in $ABX_TEST_STATE:
 #   probe / probe-remapped   output of the write probe, before and after the agent image is remapped
-#   stale                    'exec' fails with runc's stale-mount error until containers are removed
+#   stale                    'exec' fails with runc's stale-mount error until an agent container is removed
 #   stack-fails              'exec true' fails, printing this file
 #   generated-policy         policy content written by 'init'
 #   override-scaffold        compose override content written by 'init'
 #   override-ignored         'compose config' doesn't reflect the override
 #   exec-exit                exit status of the final 'exec'
 #   exec-hook                a script sourced during the final 'exec', while the session is "running"
+#   project-name             the name given to 'init'
+# Starting the stack (any 'exec' while the project has no running agent) adds its agent and proxy containers to the
+# docker stub's table, with the agent on the image the compose override names, or the upstream image. The stack's
+# network is added too. See tests/stubs/docker for the table.
 S="$ABX_TEST_STATE"
 OVERRIDE=.agent-sandbox/compose/user.override.yml
 POLICY=.agent-sandbox/policy/user.policy.yaml
 printf 'agentbox %s\n' "$*" >> "$S/calls.log"
+
+start_stack() {
+  local name wd image now
+  touch "$S/containers" "$S/networks"
+  name="$(cat "$S/project-name" 2>/dev/null || basename "$(pwd -P)")"
+  if awk -v p="$name" '$4 == p && $5 == "agent" && $8 == "true" { found = 1 } END { exit !found }' "$S/containers"; then
+    return 0
+  fi
+  wd="$(pwd -P)/.agent-sandbox"
+  image="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$OVERRIDE" 2>/dev/null | head -n1)"
+  image="${image:-ghcr.io/mattolson/agent-sandbox-claude:latest}"
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  awk '$1 != "ctr-agent" && $1 != "ctr-proxy"' "$S/containers" > "$S/containers.tmp" && mv "$S/containers.tmp" "$S/containers"
+  printf 'ctr-agent ctr-agent %s %s agent %s %s true\n' "$image" "$name" "$wd" "$now" >> "$S/containers"
+  printf 'ctr-proxy ctr-proxy ghcr.io/mattolson/agent-sandbox-proxy:latest %s proxy %s %s true\n' "$name" "$wd" "$now" >> "$S/containers"
+  printf 'p_default %s\n' "$name" >> "$S/networks"
+}
+
 case "$1" in
   init)
+    name="$(basename "$(pwd -P)")"
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in --name) name="$2"; shift ;; esac
+      shift
+    done
+    printf '%s\n' "$name" > "$S/project-name"
     mkdir -p .agent-sandbox/policy .agent-sandbox/compose
     if [ -f "$S/generated-policy" ]; then cp "$S/generated-policy" "$POLICY"; else printf 'domains:\n  - generated.example.com\n' > "$POLICY"; fi
     if [ -f "$S/override-scaffold" ]; then cp "$S/override-scaffold" "$OVERRIDE"; else
@@ -39,13 +68,13 @@ case "$1" in
     fi
     case "$*" in
       *abx-write-probe*)
-        touch "$S/agent-running"
+        start_stack
         if [ -f "$S/probe-remapped" ] && grep -q 'image: abx/' "$OVERRIDE" 2>/dev/null; then cat "$S/probe-remapped"; else cat "$S/probe"; fi ;;
       true)
         if [ -f "$S/stack-fails" ]; then cat "$S/stack-fails"; exit 1; fi
-        touch "$S/agent-running" ;;
+        start_stack ;;
       *)
-        touch "$S/agent-running"
+        start_stack
         printf '%s\n' "$@" > "$S/exec.args"
         # A test can inspect the host's state while the session is "running".
         if [ -f "$S/exec-hook" ]; then . "$S/exec-hook"; fi

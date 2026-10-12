@@ -97,7 +97,7 @@ test_rebuild_pulls_and_keeps_uid_fix() {
 }
 
 test_stale_containers_are_recreated() {
-  state agent-running yes
+  container_add ctr-agent
   state stale yes
   run_abx -p hi
   assert_status 0

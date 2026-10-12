@@ -50,6 +50,48 @@ state_dir() {
 }
 settings_json() { python3 -c "import json,sys; d=json.load(open('$PROJECT/.abx/settings.json')); print(eval(sys.argv[1]))" "$1"; }
 
+# The physical path abx uses for this test's project.
+project_dir() { (cd "$PROJECT" && pwd -P); }
+
+# The docker stub's container table (see tests/stubs/docker). A row with the same name is replaced.
+# container_add NAME [SERVICE [IMAGE [CREATED [RUNNING [WORKDIR [PROJECT]]]]]]: a Compose container. Defaults: an agent
+# on the upstream image, created in January 2026, running, in this project's .agent-sandbox/.
+container_add() {
+  local name="$1" service="${2:-agent}" image="${3:-ghcr.io/mattolson/agent-sandbox-claude:latest}" \
+        created="${4:-2026-01-01T00:00:00Z}" running="${5:-true}" wd="${6:-$(project_dir)/.agent-sandbox}" \
+        project="${7:-proj}"
+  container_drop "$name"
+  printf '%s %s %s %s %s %s %s %s\n' "$name" "$name" "$image" "$project" "$service" "$wd" "$created" "$running" \
+    >> "$ABX_TEST_STATE/containers"
+}
+# sidecar_add NAME [OWNER_DIR [RUNNING]]: one of abx's own containers, with no Compose labels, carrying abx.project-dir.
+sidecar_add() {
+  local name="$1" dir="${2:-$(project_dir)}" running="${3:-true}"
+  container_drop "$name"
+  mkdir -p "$ABX_TEST_STATE/labels"
+  printf '%s %s - - - - 2026-01-01T00:00:00Z %s\n' "$name" "$name" "$running" >> "$ABX_TEST_STATE/containers"
+  printf '%s' "$dir" > "$ABX_TEST_STATE/labels/$name.abx.project-dir"
+}
+container_drop() {
+  [ -f "$ABX_TEST_STATE/containers" ] || return 0
+  awk -v k="$1" '$1 != k' "$ABX_TEST_STATE/containers" > "$ABX_TEST_STATE/containers.tmp"
+  mv "$ABX_TEST_STATE/containers.tmp" "$ABX_TEST_STATE/containers"
+}
+containers_none() { : > "$ABX_TEST_STATE/containers"; }
+# image_add TAG [KEY=VALUE...]: an image, with labels.
+image_add() {
+  local tag="$1" kv file
+  shift
+  file="$(printf '%s' "$tag" | tr '/:' '__')"
+  mkdir -p "$ABX_TEST_STATE/images" "$ABX_TEST_STATE/image-labels"
+  echo "$tag" > "$ABX_TEST_STATE/images/$file"
+  : > "$ABX_TEST_STATE/image-labels/$file"
+  for kv in "$@"; do printf '%s\n' "$kv" >> "$ABX_TEST_STATE/image-labels/$file"; done
+}
+# network_add NAME PROJECT and volume_add NAME PROJECT: Compose networks and volumes.
+network_add() { printf '%s %s\n' "$1" "$2" >> "$ABX_TEST_STATE/networks"; }
+volume_add() { printf '%s %s\n' "$1" "$2" >> "$ABX_TEST_STATE/volumes"; }
+
 # run_abx ARGS... : runs abx, capturing combined output in $OUT and the exit status in $STATUS.
 run_abx() {
   OUT="$(bash "$HOME/.local/bin/abx" "$@" 2>&1 </dev/null)"

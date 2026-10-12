@@ -233,7 +233,7 @@ test_abx_mount_is_restored_when_agentbox_ignores_it() {
 test_abx_mount_recreates_containers_only_when_added() {
   ABX_CLAUDE_MD=off run_abx -p hi
   printf '%s\n' 'services:' '  agent:' '    environment:' '      FOO: bar' > .agent-sandbox/compose/user.override.yml
-  state agent-running yes
+  container_add ctr-agent
   reset_calls
   ABX_CLAUDE_MD=off run_abx -p hi
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"

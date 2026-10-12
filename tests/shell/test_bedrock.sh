@@ -58,16 +58,18 @@ test_expired_login_is_reported() {
 }
 
 test_live_concurrent_session_shares_gateway() {
-  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions" "$ABX_TEST_STATE/running"
-  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/$$" "$ABX_TEST_STATE/running/$GATEWAY"
+  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions"
+  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/$$"
+  sidecar_add "$GATEWAY"
   run_abx --bedrock -p hi
   assert_calls_lack "docker run -d --name $GATEWAY"
   assert_file_lacks "$ABX_TEST_STATE/events" "removed $GATEWAY"
 }
 
 test_dead_session_does_not_hold_gateway() {
-  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions" "$ABX_TEST_STATE/running"
-  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/999999" "$ABX_TEST_STATE/running/$GATEWAY"
+  mkdir -p "$XDG_RUNTIME_DIR/abx/proj/sessions"
+  touch "$XDG_RUNTIME_DIR/abx/proj/sessions/999999"
+  sidecar_add "$GATEWAY"
   run_abx --bedrock -p hi
   assert_calls_contain "docker run -d --name $GATEWAY"
   assert_no_file "$XDG_RUNTIME_DIR/abx/proj/sessions/999999"
@@ -81,9 +83,12 @@ test_signer_built_from_resources() {
 }
 
 test_sandbox_that_will_not_start_is_explained() {
+  # The first run writes the override, which recreates containers; the stopped ones are seeded after it.
+  run_abx -p hi
   printf 'dependency failed to start: container proj-proxy-1 exited (1)\n' > "$ABX_TEST_STATE/stack-fails"
-  state exited proj-proxy-1
-  printf '          proj-agent-1  Created\n          proj-proxy-1  Exited (1)\n' > "$ABX_TEST_STATE/ps-list"
+  containers_none
+  container_add proj-agent-1 agent ghcr.io/mattolson/agent-sandbox-claude:latest 2026-01-01T00:00:00Z false
+  container_add proj-proxy-1 proxy ghcr.io/mattolson/agent-sandbox-proxy:latest 2026-01-01T00:00:00Z false
   mkdir -p "$ABX_TEST_STATE/logs" && echo "user.policy.yaml.services[1] must contain 'name'" > "$ABX_TEST_STATE/logs/proj-proxy-1"
   ABX_SKIP_UID_CHECK=true run_abx --bedrock -p hi
   assert_status 1

@@ -1,16 +1,96 @@
 #!/bin/bash
 # Stand-in for the Docker CLI, covering the calls abx makes. State lives in $ABX_TEST_STATE:
-#   docker-info        'permission' or 'down' to fail 'docker info'
-#   agent-running      the project's agent container is up (ctr-agent, with ctr-proxy)
-#   images/<tag>       images that exist; 'build' creates them, and keeps the Dockerfile in built/
-#   running/<name>     sidecar containers that are running; labels/<name>.<label> hold their labels
-#   busy-ports         ports Docker reports as already allocated
-#   exited, ps-list    output for the project's exited containers and container listing
-#   logs/<name>        output of 'docker logs'
+#   docker-info          'permission' or 'down' to fail 'docker info'
+#   containers           one line per container: "id name image project service working_dir created running".
+#                        A '-' stands for a label that isn't set, as on abx's own sidecars, which have no Compose
+#                        labels. created is an RFC 3339 time and running is true or false. Tests add rows with the
+#                        harness; the agentbox stub adds the stack's; 'docker run -d' adds a row for each sidecar
+#   labels/<name>.<key>  labels other than the Compose ones, from 'docker run --label' or a test
+#   networks             one line per network: "name project"
+#   volumes              one line per volume: "name project"
+#   images/<tag>         one file per image, holding the image name; 'build' creates them
+#   image-labels/<tag>   the labels of an image, as KEY=VALUE lines; 'build' writes them from its --label options
+#   image-user           the user of every image, dev by default
+#   build-fails          'build' fails
+#   run-fails            'run -d' fails, printing this file
+#   busy-ports           ports Docker reports as already allocated
+#   logs/<name>          output of 'docker logs'
+#   events               one line per removal: "removed NAME", "removed volume NAME", "removed network NAME", ...
+#   built/               the Dockerfile and context files of each built image
+#   run-args/<name>      the arguments of each 'run -d'
+#   reowned              the volumes 'run' mounted at /v, for re-owning
+# 'ps' takes -a, -q, --filter (label=K, label=K=V, name=X, status=exited) and --format with {{.ID}}, {{.Names}} and
+# {{.Status}}. 'inspect -f' takes {{.Config.Image}}, {{.Created}}, {{.State.Running}}, {{index .Config.Labels "K"}},
+# and the .Mounts, .NetworkSettings and .Config.Env blocks abx reads. Image inspect takes .Config.User and labels.
 S="$ABX_TEST_STATE"
-mkdir -p "$S/images" "$S/built" "$S/running" "$S/labels" "$S/logs" "$S/run-args"
+mkdir -p "$S/images" "$S/built" "$S/labels" "$S/logs" "$S/run-args" "$S/image-labels"
+touch "$S/containers" "$S/networks" "$S/volumes" "$S/events"
 printf 'docker %s\n' "$*" >> "$S/calls.log"
 tagfile() { printf '%s' "$1" | tr '/:' '__'; }
+
+# Loads the row of container ID or NAME into ID NAME IMAGE PROJECT SERVICE WD CREATED RUNNING. Fails if there's none.
+load() {
+  local row
+  row="$(awk -v k="$1" '$1 == k || $2 == k { print; exit }' "$S/containers")"
+  [ -n "$row" ] || return 1
+  read -r ID NAME IMAGE PROJECT SERVICE WD CREATED RUNNING <<< "$row"
+}
+
+# A field of a row, where '-' is an unset label.
+value() { if [ "$1" = - ]; then printf ''; else printf '%s' "$1"; fi; }
+
+# A label of the loaded container: the Compose labels come from its row, others from labels/.
+label() {
+  case "$1" in
+    com.docker.compose.project) value "$PROJECT" ;;
+    com.docker.compose.service) value "$SERVICE" ;;
+    com.docker.compose.project.working_dir) value "$WD" ;;
+    *) cat "$S/labels/$NAME.$1" 2>/dev/null ;;
+  esac
+}
+
+# The value of one template expression for the loaded container.
+field() {
+  case "$1" in
+    .ID) printf '%s' "$ID" ;;
+    .Names) printf '%s' "$NAME" ;;
+    .Status) if [ "$RUNNING" = true ]; then printf 'Up'; else printf 'Exited (0)'; fi ;;
+    .Config.Image) value "$IMAGE" ;;
+    .Created) printf '%s' "$CREATED" ;;
+    .State.Running) printf '%s' "$RUNNING" ;;
+    'index .Config.Labels "'*'"') key="${1#*\"}"; key="${key%\"}"; label "$key" ;;
+  esac
+}
+
+# Renders a template for the loaded container.
+render() {
+  local rest="$1" out="" open='{{' close='}}' expr
+  while [ "${rest#*"$open"}" != "$rest" ]; do
+    out="$out${rest%%"$open"*}"
+    rest="${rest#*"$open"}"
+    expr="${rest%%"$close"*}"
+    rest="${rest#*"$close"}"
+    out="$out$(field "$expr")"
+  done
+  printf '%s%s' "$out" "$rest"
+}
+
+# The project named by a label=com.docker.compose.project=NAME filter, if the arguments have one.
+project_filter() {
+  local a
+  for a in "$@"; do
+    case "$a" in label=com.docker.compose.project=*) printf '%s' "${a#label=com.docker.compose.project=}" ;; esac
+  done
+}
+
+# The Compose project a network or volume belongs to, and how many containers are in that project.
+project_of() { awk -v n="$1" '$1 == n { print $2; exit }' "$2"; }
+containers_in() { awk -v p="$1" 'BEGIN { n = 0 } p != "" && $4 == p { n++ } END { print n }' "$S/containers"; }
+
+# Drops the rows named by FILE's first column equal to KEY.
+drop_row() {
+  awk -v k="$2" '$1 != k' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+}
 
 case "$1" in
   info)
@@ -19,39 +99,89 @@ case "$1" in
       down) echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2; exit 1 ;;
     esac ;;
   build)
-    tag=""; prev=""
-    for a in "$@"; do [ "$prev" = -t ] && tag="$a"; prev="$a"; done
+    tag=""; prev=""; labels=""
+    for a in "$@"; do
+      [ "$prev" = -t ] && tag="$a"
+      [ "$prev" = --label ] && labels="$labels$a"$'\n'
+      prev="$a"
+    done
     ctx="${!#}"
     [ -f "$S/build-fails" ] && { echo "build failed: example" >&2; exit 1; }
-    touch "$S/images/$(tagfile "$tag")"
+    echo "$tag" > "$S/images/$(tagfile "$tag")"
+    printf '%s' "$labels" > "$S/image-labels/$(tagfile "$tag")"
     cp "$ctx/Dockerfile" "$S/built/$(tagfile "$tag").Dockerfile"
     [ -f "$ctx/abx-CLAUDE.md" ] && cp "$ctx/abx-CLAUDE.md" "$S/built/$(tagfile "$tag").abx-CLAUDE.md"
     [ -f "$ctx/signer.py" ] && cp "$ctx/signer.py" "$S/built/$(tagfile "$tag").signer.py"
     echo built ;;
   image)
-    if [ "$2" = inspect ] && [ "$3" = -f ]; then cat "$S/image-user" 2>/dev/null || echo dev; exit 0; fi
-    [ -f "$S/images/$(tagfile "$3")" ] || exit 1 ;;
-  ps)
-    case "$*" in
-      *"service=agent"*) [ -f "$S/agent-running" ] && echo ctr-agent ;;
-      *"status=exited"*) cat "$S/exited" 2>/dev/null ;;
-      "ps -aq "*) [ -f "$S/agent-running" ] && echo "ctr-agent ctr-proxy" ;;
-      "ps -a "*) cat "$S/ps-list" 2>/dev/null ;;
+    case "$2" in
+      inspect)
+        # With -f, any image answers, as the upstream image does; without it, the image must have been built.
+        name="${!#}"
+        if [ "$3" != -f ]; then [ -f "$S/images/$(tagfile "$name")" ] || exit 1; fi
+        if [ "$3" = -f ]; then
+          case "$4" in
+            '{{.Config.User}}') cat "$S/image-user" 2>/dev/null || echo dev ;;
+            'index .Config.Labels "'*'"')
+              key="${4#*\"}"; key="${key%\"}"
+              awk -v k="$key" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$S/image-labels/$(tagfile "$name")" 2>/dev/null ;;
+          esac
+        fi ;;
+      ls) for f in "$S"/images/*; do [ -f "$f" ] && cat "$f"; done ;;
+      rm)
+        for n in "${@:3}"; do
+          case "$n" in -*) continue ;; esac
+          rm -f "$S/images/$(tagfile "$n")"
+          echo "removed image $n" >> "$S/events"
+        done ;;
+      prune) echo "pruned images" >> "$S/events" ;;
     esac ;;
+  ps)
+    shift
+    all=false; quiet=false; fmt=""; filters=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --filter) filters="$filters $2"; shift ;;
+        --format) fmt="$2"; shift ;;
+        --*) ;;
+        -*) case "$1" in *a*) all=true ;; esac; case "$1" in *q*) quiet=true ;; esac ;;
+      esac
+      shift
+    done
+    for f in $filters; do case "$f" in status=exited) all=true ;; esac; done
+    while read -r ID NAME IMAGE PROJECT SERVICE WD CREATED RUNNING; do
+      keep=true
+      for f in $filters; do
+        case "$f" in
+          status=exited) [ "$RUNNING" = false ] || keep=false ;;
+          label=*=*)
+            spec="${f#label=}"
+            [ "$(label "${spec%%=*}")" = "${spec#*=}" ] || keep=false ;;
+          label=*) [ -n "$(label "${f#label=}")" ] || keep=false ;;
+          name=*) case "$NAME" in *"${f#name=}"*) ;; *) keep=false ;; esac ;;
+        esac
+      done
+      [ "$keep" = true ] || continue
+      [ "$all" = true ] || [ "$RUNNING" = true ] || continue
+      if [ "$quiet" = true ]; then echo "$ID"
+      elif [ -n "$fmt" ]; then echo "$(render "$fmt")"
+      else echo "$ID $NAME $(field .Status)"; fi
+    done 2>/dev/null < "$S/containers" ;;
   inspect)
-    fmt="$3"; name="$4"
+    shift
+    fmt=""
+    if [ "$1" = -f ]; then fmt="$2"; shift 2; fi
+    load "$1" || { echo "Error: No such object: $1" >&2; exit 1; }
     case "$fmt" in
-      "{{.Config.Image}}") cat "$S/agent-image" 2>/dev/null || echo ghcr.io/mattolson/agent-sandbox-claude:latest ;;
-      "{{range .Mounts}}"*)
-        case "$name" in
-          ctr-agent) echo "p_claude-state p_claude-history p_proxy-ca p_proxy-run " ;;
-          ctr-proxy) echo "p_proxy-state p_proxy-ca p_proxy-run " ;;
+      "") ;;
+      *'{{range .Mounts}}'*)
+        case "$SERVICE" in
+          agent) echo "p_claude-state p_claude-history p_proxy-ca p_proxy-run " ;;
+          proxy) echo "p_proxy-state p_proxy-ca p_proxy-run " ;;
         esac ;;
-      "{{range \$k, \$v := .NetworkSettings.Networks}}"*) echo "p_default " ;;
-      "{{range .Config.Env}}"*) printf 'PATH=/usr/bin\nHTTP_PROXY=http://proxy:8080\nNO_PROXY=localhost,127.0.0.1,proxy\n' ;;
-      "{{.State.Running}}") [ -f "$S/running/$name" ] && echo true || exit 1 ;;
-      *'"abx.owner-pid"'*) cat "$S/labels/$name.owner-pid" 2>/dev/null ;;
-      *'"abx.ports-spec"'*) cat "$S/labels/$name.ports-spec" 2>/dev/null ;;
+      *NetworkSettings*) echo "p_default " ;;
+      *'{{range .Config.Env}}'*) printf 'PATH=/usr/bin\nHTTP_PROXY=http://proxy:8080\nNO_PROXY=localhost,127.0.0.1,proxy\n' ;;
+      *) echo "$(render "$fmt")" ;;
     esac ;;
   run)
     if [ "$2" = -d ]; then
@@ -63,25 +193,65 @@ case "$1" in
         esac
       done
       [ -f "$S/run-fails" ] && { cat "$S/run-fails" >&2; exit 125; }
+      if load "$name"; then
+        echo "docker: Error response from daemon: Conflict. The container name \"/$name\" is already in use" >&2
+        exit 125
+      fi
       printf '%s\n' "$@" > "$S/run-args/$name"
-      touch "$S/running/$name"
+      prev=""
       for a in "$@"; do
-        case "$a" in
-          abx.owner-pid=*) printf '%s' "${a#*=}" > "$S/labels/$name.owner-pid" ;;
-          abx.ports-spec=*) printf '%s' "${a#*=}" > "$S/labels/$name.ports-spec" ;;
-        esac
+        [ "$prev" = --label ] && { key="${a%%=*}"; printf '%s' "${a#*=}" > "$S/labels/$name.$key"; }
+        prev="$a"
       done
+      printf '%s %s - - - - %s true\n' "$name" "$name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$S/containers"
     else
       for a in "$@"; do case "$a" in *:/v) echo "${a%%:*}" >> "$S/reowned" ;; esac; done
     fi ;;
   rm)
-    shift; [ "$1" = -f ] && shift
+    shift
+    rc=0
     for n in "$@"; do
-      echo "removed $n" >> "$S/events"
-      rm -f "$S/running/$n" "$S/labels/$n".*
-      case "$n" in ctr-agent|ctr-proxy) rm -f "$S/agent-running" "$S/stale" ;; esac
-    done ;;
-  network) ;;
+      case "$n" in -*) continue ;; esac
+      if ! load "$n"; then echo "Error response from daemon: No such container: $n" >&2; rc=1; continue; fi
+      echo "removed $NAME" >> "$S/events"
+      if [ "$SERVICE" = agent ]; then rm -f "$S/stale"; fi
+      drop_row "$S/containers" "$ID"
+      rm -f "$S/labels/$NAME".*
+    done
+    exit "$rc" ;;
+  network)
+    case "$2" in
+      ls)
+        pf="$(project_filter "$@")"
+        while read -r NET_NAME NET_PROJECT; do
+          if [ -z "$pf" ] || [ "$NET_PROJECT" = "$pf" ]; then echo "$NET_NAME"; fi
+        done < "$S/networks" ;;
+      inspect)
+        name="${!#}"
+        containers_in "$(project_of "$name" "$S/networks")" ;;
+      rm)
+        name="${!#}"
+        if [ "$(containers_in "$(project_of "$name" "$S/networks")")" != 0 ]; then
+          echo "Error response from daemon: error while removing network: network $name has active endpoints" >&2
+          exit 1
+        fi
+        drop_row "$S/networks" "$name"
+        echo "removed network $name" >> "$S/events" ;;
+    esac ;;
+  volume)
+    case "$2" in
+      ls)
+        pf="$(project_filter "$@")"
+        while read -r VOL_NAME VOL_PROJECT; do
+          if [ -z "$pf" ] || [ "$VOL_PROJECT" = "$pf" ]; then echo "$VOL_NAME"; fi
+        done < "$S/volumes" ;;
+      rm)
+        for v in "${@:3}"; do
+          case "$v" in -*) continue ;; esac
+          drop_row "$S/volumes" "$v"
+          echo "removed volume $v" >> "$S/events"
+        done ;;
+    esac ;;
   logs)
     if [ -f "$S/logs/$2" ]; then cat "$S/logs/$2"
     else case "$2" in abx-gateway-*) echo "[signer] forwarding Bedrock inference to bedrock-runtime.eu-west-1.amazonaws.com on port 8787" ;; esac; fi ;;

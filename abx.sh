@@ -250,107 +250,11 @@ fi
 
 _bedrock_init_vars
 
-# Earlier versions of abx kept their keys in .claude/settings.local.json; remove only those keys.
-_remove_legacy_settings() {
-  [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q '\.abx/' "$CLAUDE_LOCAL_SETTINGS" || return 0
-  command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$CLAUDE_LOCAL_SETTINGS" <<'PY' || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
-import json, os, sys
-path = sys.argv[1]
-with open(path) as f:
-    data = json.load(f)
-if data.get("awsCredentialExport") == "cat .abx/aws-credentials.json":
-    del data["awsCredentialExport"]
-    env = data.get("env", {})
-    for key in ("CLAUDE_CODE_USE_BEDROCK", "AWS_REGION"):
-        env.pop(key, None)
-    if not env:
-        data.pop("env", None)
-status = data.get("statusLine")
-if isinstance(status, dict) and ".abx/statusline.sh" in str(status.get("command", "")):
-    del data["statusLine"]
-with open(path + ".tmp", "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-os.replace(path + ".tmp", path)
-PY
-}
-
 _image_init_vars
-
-# Inside the sandbox the project is always /workspace; the statusline reads its real name from here.
-_record_project_name() {
-  mkdir -p "$ABX_DIR"
-  _exclude_path "$ABX_DIR/"
-  # pnpm keeps its store on the same filesystem as the project, which in the sandbox is /workspace.
-  _exclude_path '.pnpm-store/'
-  printf '%s\n' "$(basename "$PROJECT_DIR")" > "$ABX_DIR/project-name"
-}
-
-# ── statusline ────────────────────────────────────────────────────────────────
-
-_statusline_template() {
-  local candidate
-  for candidate in "${ABX_STATUSLINE:-}" "$ABX_CONFIG_DIR/statusline.sh"; do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then printf '%s' "$candidate"; return 0; fi
-  done
-}
-
-STATUSLINE_ENABLED=false
-
-_install_statusline() {
-  local template tmp
-  rm -f "$ABX_DIR/statusline.sh"
-  STATUSLINE_ENABLED=false
-  [ "${ABX_STATUSLINE:-}" = off ] && return 0
-  template="$(_statusline_template)"
-  if [ -z "$template" ]; then
-    debug "no statusline template found"
-    return 0
-  fi
-  tmp="$(mktemp "$ABX_DIR/.statusline.XXXXXX")"
-  cp "$template" "$tmp"
-  chmod 755 "$tmp"
-  mv -f "$tmp" "$ABX_DIR/statusline.sh"
-  STATUSLINE_ENABLED=true
-  debug "statusline installed from $template"
-}
 
 _ports_init_vars
 
-# ── abx settings ──────────────────────────────────────────────────────────────
-
-ABX_SETTINGS="$ABX_DIR/settings.json"
-
-# Rewritten on every run from abx's own state, so edits made inside the sandbox don't persist.
-_write_abx_settings() {
-  command -v python3 >/dev/null 2>&1 || die "python3 is needed to write $ABX_SETTINGS"
-  local ports=""
-  if [ "$PORTS_OWNED" = true ] || [ "$(docker inspect -f '{{.State.Running}}' "$PORTS_CONTAINER" 2>/dev/null)" = true ]; then
-    ports="$PORTS_SPEC"
-  fi
-  python3 - "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
-    "http://$GATEWAY_ALIAS:$GATEWAY_PORT" "$GATEWAY_NO_PROXY" <<'PY'
-import json, os, sys
-path, ws, statusline, bedrock, region, ports, gateway, no_proxy = sys.argv[1:9]
-data = {}
-env = {}
-if statusline == "true":
-    data["statusLine"] = {"type": "command", "command": "bash %s/.abx/statusline.sh" % ws, "padding": 0}
-if bedrock == "true":
-    env.update({"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": region,
-                "ANTHROPIC_BEDROCK_BASE_URL": gateway, "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
-                "NO_PROXY": no_proxy, "no_proxy": no_proxy})
-if ports:
-    env["ABX_PUBLISHED_PORTS"] = ports
-if env:
-    data["env"] = env
-with open(path + ".tmp", "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-os.replace(path + ".tmp", path)
-PY
-}
+_settings_init_vars
 
 # agentbox opens files in $VISUAL or $EDITOR; with neither set it falls back to a desktop opener,
 # which fails on headless machines.

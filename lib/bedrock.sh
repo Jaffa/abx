@@ -73,7 +73,6 @@ _bedrock_init_vars() {
   CREDS_FILE="$ABX_RUNTIME_DIR/creds/aws-credentials.json"
   LEGACY_CREDS_FILE="$ABX_DIR/aws-credentials.json"
   REFRESH_LOG="$ABX_DIR/refresh.log"
-  CLAUDE_LOCAL_SETTINGS=".claude/settings.local.json"
   BEDROCK_PROFILE="${ABX_BEDROCK_PROFILE:-claude-bedrock}"
   GATEWAY_CONTAINER="abx-gateway-$PROJECT_NAME"
   SESSIONS_DIR="$ABX_RUNTIME_DIR/sessions"

@@ -110,7 +110,8 @@ test_records_project_name_for_statusline() {
 test_new_project_name_is_its_directory_name_and_a_hash_of_its_path() {
   run_abx -p hi
   assert_status 0
-  [[ "$PROJ_NAME" =~ ^proj-[0-9a-f]{8}$ ]] || fail "name should be proj- and eight hex digits: $PROJ_NAME"
+  local shape='^proj-[0-9a-f]{8}$'
+  [[ "$PROJ_NAME" =~ $shape ]] || fail "name should be proj- and eight hex digits: $PROJ_NAME"
   assert_calls_contain "--name $PROJ_NAME"
   assert_file_contains "$(state_dir)/project-name" "$PROJ_NAME"
 }

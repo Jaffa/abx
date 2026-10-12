@@ -53,6 +53,7 @@ JSON
 test_missing_instructions_file_is_reported() {
   mkdir -p "$T/partial"
   cp "$REPO_DIR/abx.sh" "$T/partial/abx.sh"
+  cp -R "$REPO_DIR/lib" "$T/partial/lib"
   ln -sf "$T/partial/abx.sh" "$HOME/.local/bin/abx"
   run_abx -p hi
   assert_out_contains "resources/abx-CLAUDE.md is missing"

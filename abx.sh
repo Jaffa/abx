@@ -16,9 +16,21 @@
 
 set -euo pipefail
 
-die()   { echo "[error] $*" >&2; exit 1; }
-info()  { if [ "${ABX_QUIET:-false}" != "true" ]; then echo "[abx] $*" >&2; fi; }
-debug() { if [ "${ABX_DEBUG:-false}" = "true" ]; then echo "[debug] $*" >&2; fi; }
+# Resolved through symlinks, so the 'abx' link can live anywhere: lib/ and resources/ sit beside the real script.
+ABX_HOME="$(
+  src="${BASH_SOURCE[0]}"
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" == /* ]] || src="$dir/$src"
+  done
+  cd -P "$(dirname "$src")" && pwd
+)"
+if [ ! -d "$ABX_HOME/lib" ]; then
+  echo "[error] abx's installation is incomplete: $ABX_HOME/lib is missing. Reinstall abx so that lib/ sits beside abx.sh." >&2
+  exit 1
+fi
+for lib in "$ABX_HOME"/lib/*.sh; do . "$lib"; done
 
 ABX_INIT_ARGS=(--agent claude --mode cli)
 TEMPLATE_DIR="${ABX_TEMPLATE_DIR:-$HOME/.config/agent-sandbox/templates}"
@@ -510,10 +522,6 @@ _write_override() {
 
 IMAGE_EXTRAS="${ABX_IMAGE_EXTRAS:-$ABX_CONFIG_DIR/Dockerfile.extra}"
 
-_sha16() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | cut -c1-16
-}
-
 _claude_md_template() {
   local candidate
   [ "${ABX_CLAUDE_MD:-}" = off ] && return 0
@@ -732,22 +740,6 @@ _record_project_name() {
 }
 
 # ── statusline ────────────────────────────────────────────────────────────────
-
-# Files abx itself depends on live in resources/ beside the script; examples/ holds templates a user
-# copies into ~/.config/agent-sandbox/abx/ and that abx never picks up on its own.
-_resources_dir() {
-  printf '%s/resources' "$(_abx_dir)"
-}
-
-_abx_dir() {
-  local src="${BASH_SOURCE[0]}" dir
-  while [ -L "$src" ]; do
-    dir="$(cd -P "$(dirname "$src")" && pwd)"
-    src="$(readlink "$src")"
-    [[ "$src" == /* ]] || src="$dir/$src"
-  done
-  cd -P "$(dirname "$src")" && pwd
-}
 
 _statusline_template() {
   local candidate

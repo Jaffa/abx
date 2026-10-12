@@ -9,7 +9,7 @@ FILTER="${1:-}"
 passed=0 failed=0 skipped=0 failures=""
 
 echo "── syntax"
-for f in "$REPO_DIR"/abx.sh "$REPO_DIR"/examples/*.sh "$REPO_DIR"/resources/*.sh "$TESTS_DIR"/stubs/* "$TESTS_DIR"/lib/*.sh "$TESTS_DIR"/shell/*.sh; do
+for f in "$REPO_DIR"/abx.sh "$REPO_DIR"/lib/*.sh "$REPO_DIR"/examples/*.sh "$REPO_DIR"/resources/*.sh "$TESTS_DIR"/stubs/* "$TESTS_DIR"/lib/*.sh "$TESTS_DIR"/shell/*.sh; do
   if bash -n "$f"; then passed=$((passed + 1)); else failed=$((failed + 1)); failures="$failures syntax:$f"; fi
 done
 for f in "$REPO_DIR"/resources/*.py "$TESTS_DIR"/python/*.py; do
@@ -17,7 +17,7 @@ for f in "$REPO_DIR"/resources/*.py "$TESTS_DIR"/python/*.py; do
 done
 if command -v shellcheck >/dev/null 2>&1; then
   echo "── shellcheck"
-  if shellcheck -S error "$REPO_DIR"/abx.sh "$REPO_DIR"/resources/*.sh; then passed=$((passed + 1)); else failed=$((failed + 1)); failures="$failures shellcheck"; fi
+  if shellcheck -S error "$REPO_DIR"/abx.sh "$REPO_DIR"/lib/*.sh "$REPO_DIR"/resources/*.sh; then passed=$((passed + 1)); else failed=$((failed + 1)); failures="$failures shellcheck"; fi
 fi
 
 for file in "$TESTS_DIR"/shell/test_*.sh; do

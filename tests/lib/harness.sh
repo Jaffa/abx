@@ -46,7 +46,7 @@ state_dir() {
   local dir key
   dir="$(cd "$PROJECT" && pwd -P)"
   key="$(printf '%s' "$(basename "$dir")" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
-  printf '%s/abx/%s-%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$key" "$(printf '%s' "$dir" | sha256sum | cut -c1-8)"
+  printf '%s/abx/%s-%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$key" "$(printf '%s' "$dir" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
 }
 settings_json() { python3 -c "import json,sys; d=json.load(open('$PROJECT/.abx/settings.json')); print(eval(sys.argv[1]))" "$1"; }
 

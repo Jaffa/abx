@@ -67,12 +67,12 @@ GATEWAY_NO_PROXY=""
 
 # Derived from the project directory, so this is set once the project is known rather than on sourcing.
 _bedrock_init_vars() {
-  BEDROCK_MARKER="$ABX_DIR/bedrock-profile"
+  BEDROCK_MARKER="$ABX_STATE/bedrock-profile"
   # Credentials stay outside the project, which the agent can read, in a private per-user directory.
   ABX_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/abx/$PROJECT_NAME"
   CREDS_FILE="$ABX_RUNTIME_DIR/creds/aws-credentials.json"
   LEGACY_CREDS_FILE="$ABX_DIR/aws-credentials.json"
-  REFRESH_LOG="$ABX_DIR/refresh.log"
+  REFRESH_LOG="$ABX_STATE/refresh.log"
   BEDROCK_PROFILE="${ABX_BEDROCK_PROFILE:-claude-bedrock}"
   GATEWAY_CONTAINER="abx-gateway-$PROJECT_NAME"
   SESSIONS_DIR="$ABX_RUNTIME_DIR/sessions"
@@ -80,9 +80,9 @@ _bedrock_init_vars() {
     on) BEDROCK_ENABLED=true ;;
     off) _disable_bedrock ;;
     *)
-      if [ -f "$BEDROCK_MARKER" ]; then
+      if _read_bedrock_profile "$BEDROCK_MARKER"; then
         BEDROCK_ENABLED=true
-        if [ -z "${ABX_BEDROCK_PROFILE:-}" ]; then BEDROCK_PROFILE="$(head -n1 "$BEDROCK_MARKER")"; fi
+        if [ -z "${ABX_BEDROCK_PROFILE:-}" ]; then BEDROCK_PROFILE="$STORED_BEDROCK_PROFILE"; fi
       fi
       ;;
   esac
@@ -106,7 +106,7 @@ _running_agent_container() {
   local ctr
   ctr="$(_agent_container)"
   if [ -z "$ctr" ]; then
-    agentbox exec true > "$ABX_DIR/agent-start.log" 2>&1 || true
+    agentbox exec true > "$ABX_STATE/agent-start.log" 2>&1 || true
     ctr="$(_agent_container)"
   fi
   printf '%s' "$ctr"
@@ -114,9 +114,9 @@ _running_agent_container() {
 
 _explain_missing_agent() {
   echo "[error] $1" >&2
-  if [ -s "$ABX_DIR/agent-start.log" ]; then
+  if [ -s "$ABX_STATE/agent-start.log" ]; then
     echo "        Starting the sandbox printed:" >&2
-    tail -n 15 "$ABX_DIR/agent-start.log" | sed 's/^/          /' >&2
+    tail -n 15 "$ABX_STATE/agent-start.log" | sed 's/^/          /' >&2
   fi
   echo "        Containers for project '$PROJECT_NAME':" >&2
   docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" \
@@ -145,8 +145,8 @@ _ensure_signer_image() {
   printf '%s\n' 'FROM python:3-alpine' 'COPY signer.py /app/signer.py' \
     'ENTRYPOINT ["python3", "-u", "/app/signer.py"]' > "$dir/Dockerfile"
   info "Building the Bedrock signer image..."
-  docker build -t "$tag" "$dir" > "$ABX_DIR/signer-build.log" 2>&1 \
-    || { tail -n 10 "$ABX_DIR/signer-build.log" >&2; die "Building the Bedrock signer failed; see $PROJECT_DIR/$ABX_DIR/signer-build.log"; }
+  docker build -t "$tag" "$dir" > "$ABX_STATE/signer-build.log" 2>&1 \
+    || { tail -n 10 "$ABX_STATE/signer-build.log" >&2; die "Building the Bedrock signer failed; see $ABX_STATE/signer-build.log"; }
 }
 
 _start_bedrock_gateway() {

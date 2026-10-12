@@ -160,6 +160,14 @@ cd "$PROJECT_DIR"
 
 ABX_DIR=".abx"
 
+# Host-only state lives outside the project, under the project's name and a hash of its path, so projects
+# with the same name in different places don't share it. See lib/state.sh.
+ABX_STATE_KEY="$(printf '%s' "$PROJECT_DIR" | _sha16 | cut -c1-8 || true)"
+[ -n "$ABX_STATE_KEY" ] || die "Couldn't hash the project path, so there's no state directory. Install sha256sum or shasum."
+ABX_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/abx/$PROJECT_NAME-$ABX_STATE_KEY"
+mkdir -p "$ABX_STATE"
+chmod 700 "$ABX_STATE"
+
 if [ ! -d .agent-sandbox ]; then
   case "$COMMAND" in
     claude|shell) _init_project ;;
@@ -168,6 +176,8 @@ if [ ! -d .agent-sandbox ]; then
 else
   _exclude_from_git
 fi
+
+_migrate_state
 
 _bedrock_init_vars
 

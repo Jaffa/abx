@@ -8,10 +8,10 @@ OVERRIDE_MARKER="# abx: uid-remap"
 # rather than on sourcing.
 _image_init_vars() {
   ABX_CONFIG_DIR="${ABX_CONFIG_DIR:-$HOME/.config/agent-sandbox/abx}"
-  UID_MARKER="$ABX_DIR/uid-ok"
-  UID_STATE="$ABX_DIR/uid-remap.env"
+  UID_MARKER="$ABX_STATE/uid-ok"
+  UID_STATE="$ABX_STATE/uid-remap.env"
   HOST_UID="$(id -u)"
-  PROBE_LOG="$ABX_DIR/probe.log"
+  PROBE_LOG="$ABX_STATE/probe.log"
   IMAGE_EXTRAS="${ABX_IMAGE_EXTRAS:-$ABX_CONFIG_DIR/Dockerfile.extra}"
 }
 
@@ -150,15 +150,14 @@ EOF
   if ! docker build ${flags[@]+"${flags[@]}"} -t "$REMAPPED_IMAGE" \
       --build-arg "BASE=$base" --build-arg "HOST_UID=$target_uid" \
       --build-arg "USER_NAME=$user" --build-arg "ORIG_USER=${orig_user:-root}" \
-      "$dir" > "$ABX_DIR/build.log" 2>&1; then
-    tail -n 20 "$ABX_DIR/build.log" >&2
-    die "Building $REMAPPED_IMAGE failed; the full log is in $PROJECT_DIR/$ABX_DIR/build.log"
+      "$dir" > "$ABX_STATE/build.log" 2>&1; then
+    tail -n 20 "$ABX_STATE/build.log" >&2
+    die "Building $REMAPPED_IMAGE failed; the full log is in $ABX_STATE/build.log"
   fi
 }
 
 _write_image_state() {
-  printf 'BASE=%s\nUSER_NAME=%s\nORIG_USER=%s\nOLD_UID=%s\nTARGET_UID=%s\nEXTRAS_HASH=%s\n' \
-    "$1" "$2" "$3" "$4" "$5" "$(_extras_hash)" > "$UID_STATE"
+  _write_uid_state "$UID_STATE" "$1" "$2" "$3" "$4" "$5" "$(_extras_hash)"
 }
 
 _stop_project_containers() {
@@ -229,8 +228,7 @@ _apply_derived_image() {
 # Rebuild for a project already on a derived image, e.g. new extras or a newer upstream image.
 _refresh_derived_image() {
   local pull="$1"
-  # shellcheck disable=SC1090
-  . "$UID_STATE"
+  # The state was checked by _read_uid_remap, and is never sourced.
   _build_derived_image "$BASE" "$USER_NAME" "$ORIG_USER" "${TARGET_UID:-$HOST_UID}" "$pull"
   _write_override "$REMAPPED_IMAGE"
   _stop_project_containers
@@ -238,12 +236,11 @@ _refresh_derived_image() {
 }
 
 _ensure_uid_match() {
-  local probe c_uid c_user state stored
+  local probe c_uid c_user state
   if [ "${ABX_SKIP_UID_CHECK:-false}" = true ]; then return 0; fi
-  if [ -f "$UID_MARKER" ] && [ "$(cat "$UID_MARKER")" = "$HOST_UID" ]; then
-    if [ -f "$UID_STATE" ]; then
-      stored="$(sed -n 's/^EXTRAS_HASH=//p' "$UID_STATE")"
-      if [ "${stored:-none}" != "$(_extras_hash)" ]; then
+  if _state_file "$UID_MARKER" && [ "$(cat "$UID_MARKER")" = "$HOST_UID" ]; then
+    if _read_uid_remap "$UID_STATE"; then
+      if [ "${EXTRAS_HASH:-none}" != "$(_extras_hash)" ]; then
         info "The image extras or abx's CLAUDE.md have changed; rebuilding."
         _refresh_derived_image false
       fi
@@ -266,7 +263,7 @@ _ensure_uid_match() {
   if [ -z "$probe" ]; then
     echo "[error] Couldn't check whether the agent can write to the project. agentbox returned:" >&2
     sed 's/^/        /' "$PROBE_LOG" | tail -n 15 >&2
-    die "Full output is in $PROJECT_DIR/$PROBE_LOG. Set ABX_SKIP_UID_CHECK=true to bypass the check."
+    die "Full output is in $PROBE_LOG. Set ABX_SKIP_UID_CHECK=true to bypass the check."
   fi
   c_uid="${probe%% *}"; state="${probe##* }"; c_user="${probe#* }"; c_user="${c_user%% *}"
   debug "container user $c_user ($c_uid), project is $state"
@@ -285,7 +282,7 @@ _ensure_uid_match() {
 }
 
 _cmd_rebuild() {
-  [ -f "$UID_STATE" ] || { info "This project doesn't use a derived image; nothing to rebuild."; return 0; }
+  _read_uid_remap "$UID_STATE" || { info "This project doesn't use a derived image; nothing to rebuild."; return 0; }
   _refresh_derived_image true
   info "Rebuilt from the latest upstream image; the next abx run starts on it."
 }

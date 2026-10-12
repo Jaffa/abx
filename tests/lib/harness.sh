@@ -45,7 +45,7 @@ exec_args() { cat "$ABX_TEST_STATE/exec.args" 2>/dev/null; }
 state_dir() {
   local dir key
   dir="$(cd "$PROJECT" && pwd -P)"
-  key="$(basename "$dir" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
+  key="$(printf '%s' "$(basename "$dir")" | LC_ALL=C tr -c 'A-Za-z0-9_-' '-' | LC_ALL=C tr 'A-Z' 'a-z')"
   printf '%s/abx/%s-%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$key" "$(printf '%s' "$dir" | sha256sum | cut -c1-8)"
 }
 settings_json() { python3 -c "import json,sys; d=json.load(open('$PROJECT/.abx/settings.json')); print(eval(sys.argv[1]))" "$1"; }

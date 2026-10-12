@@ -61,7 +61,7 @@ test_other_docker_error_reported_and_session_continues() {
   assert_status 0
   assert_out_contains "Docker said:"
   assert_out_contains 'invalid argument "x"'
-  assert_file .abx/ports.log
+  assert_file "$(state_dir)/ports.log"
   exec_args | grep -q claude || fail "the session should still start"
 }
 

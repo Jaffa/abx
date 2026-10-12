@@ -46,7 +46,7 @@ test_bedrock_mode_is_remembered_and_can_be_turned_off() {
   run_abx --no-bedrock -p hi
   assert_out_contains "Bedrock mode is off"
   assert_eq "$(settings_json "'env' in d")" "False" "Bedrock settings removed"
-  assert_no_file .abx/bedrock-profile
+  assert_no_file "$(state_dir)/bedrock-profile"
 }
 
 test_expired_login_is_reported() {

@@ -4,7 +4,7 @@ test_writable_project_without_additions_builds_nothing() {
   ABX_CLAUDE_MD=off run_abx -p hi
   assert_status 0
   assert_calls_lack "docker build"
-  assert_eq "$(cat .abx/uid-ok)" "1000" "uid marker"
+  assert_eq "$(cat "$(state_dir)/uid-ok")" "1000" "uid marker"
 }
 
 test_uid_mismatch_remaps_user_and_reowns_agent_only_volumes() {
@@ -18,8 +18,8 @@ test_uid_mismatch_remaps_user_and_reowns_agent_only_volumes() {
   assert_file_contains .agent-sandbox/compose/user.override.yml "pull_policy: never  # abx: uid-remap"
   assert_file_contains .agent-sandbox/compose/user.override.yml "shell.d"
   assert_eq "$(sort "$ABX_TEST_STATE/reowned" | tr '\n' ' ')" "p_claude-history p_claude-state " "re-owned volumes"
-  assert_file_contains .abx/uid-remap.env "OLD_UID=501"
-  assert_file_contains .abx/uid-remap.env "TARGET_UID=1000"
+  assert_file_contains "$(state_dir)/uid-remap.env" "OLD_UID=501"
+  assert_file_contains "$(state_dir)/uid-remap.env" "TARGET_UID=1000"
 }
 
 test_remapped_dockerfile_restores_original_user() {
@@ -79,7 +79,7 @@ test_image_extras_come_only_from_config_directory() {
 }
 
 test_old_state_file_does_not_trigger_rebuild() {
-  run_abx -p hi
+  ABX_CLAUDE_MD=off run_abx -p hi
   printf 'BASE=ghcr.io/mattolson/agent-sandbox-claude:latest\nUSER_NAME=dev\nORIG_USER=\nOLD_UID=501\n' > .abx/uid-remap.env
   reset_calls
   ABX_CLAUDE_MD=off run_abx -p hi
@@ -111,7 +111,7 @@ test_unexpected_probe_output_is_reported() {
   assert_status 1
   assert_out_contains "Couldn't check whether the agent can write"
   assert_out_contains "something unexpected"
-  assert_file .abx/probe.log
+  assert_file "$(state_dir)/probe.log"
 }
 
 test_build_failure_is_reported_with_log() {
@@ -120,5 +120,5 @@ test_build_failure_is_reported_with_log() {
   ABX_CLAUDE_MD=off run_abx -p hi
   assert_status 1
   assert_out_contains "build failed: example"
-  assert_out_contains ".abx/build.log"
+  assert_out_contains "$(state_dir)/build.log"
 }

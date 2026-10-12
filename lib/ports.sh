@@ -41,8 +41,8 @@ _ensure_forwarder_image() {
   mkdir -p "$dir"
   printf '%s\n' 'FROM alpine:3' 'RUN apk add --no-cache socat' 'USER nobody' > "$dir/Dockerfile"
   info "Building the port forwarder image..."
-  docker build -t "$FORWARDER_IMAGE" "$dir" > "$ABX_DIR/forwarder-build.log" 2>&1 \
-    || { tail -n 10 "$ABX_DIR/forwarder-build.log" >&2; return 1; }
+  docker build -t "$FORWARDER_IMAGE" "$dir" > "$ABX_STATE/forwarder-build.log" 2>&1 \
+    || { tail -n 10 "$ABX_STATE/forwarder-build.log" >&2; return 1; }
 }
 
 # Prints a sorted port list in compact form, e.g. "5170 5171 5172 6006" becomes "5170-5172,6006".
@@ -91,7 +91,7 @@ _start_port_forwarder() {
 
   # The forwarder joins the agent's network, which exists only once the stack is up.
   ctr="$(_running_agent_container)"
-  [ -n "$ctr" ] || { echo "[warning] The agent container isn't running; continuing without published ports. See $PROJECT_DIR/$ABX_DIR/agent-start.log" >&2; return 0; }
+  [ -n "$ctr" ] || { echo "[warning] The agent container isn't running; continuing without published ports. See $ABX_STATE/agent-start.log" >&2; return 0; }
   nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$ctr")"
 
   for busy in $(_host_ports_in_use $ports); do
@@ -116,10 +116,10 @@ _start_port_forwarder() {
       "${args[@]}" -e "PORTS=$ports" "$FORWARDER_IMAGE"
       sh -c 'for p in $PORTS; do socat TCP-LISTEN:"$p",fork,reuseaddr TCP:agent:"$p" & done; wait')
     # The exact command is kept, quoted, so a failure can be reproduced by hand.
-    { printf '%q ' "${run[@]}"; echo; } > "$ABX_DIR/ports.log"
+    { printf '%q ' "${run[@]}"; echo; } > "$ABX_STATE/ports.log"
     if err="$("${run[@]}" 2>&1 >/dev/null)"; then break; fi
 
-    printf '%s\n' "$err" >> "$ABX_DIR/ports.log"
+    printf '%s\n' "$err" >> "$ABX_STATE/ports.log"
     docker rm -f "$PORTS_CONTAINER" >/dev/null 2>&1 || true
     busy="$(printf '%s' "$err" | sed -n 's/.*Bind for .*:\([0-9][0-9]*\) failed.*/\1/p' | head -n1)"
     attempt=$(( attempt + 1 ))
@@ -131,7 +131,7 @@ _start_port_forwarder() {
     fi
     echo "[warning] Couldn't publish ports; continuing without them. Docker said:" >&2
     printf '%s\n' "$err" | grep -v "^Run 'docker run --help'\|^See 'docker run --help'" | sed 's/^/          /' >&2
-    echo "          The command is in $PROJECT_DIR/$ABX_DIR/ports.log" >&2
+    echo "          The command is in $ABX_STATE/ports.log" >&2
     return 0
   done
   for net in $nets; do

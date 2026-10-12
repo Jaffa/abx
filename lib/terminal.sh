@@ -12,7 +12,7 @@ _restore_terminal() {
   if [ -n "$REFRESHER_PID" ]; then
     kill "$REFRESHER_PID" 2>/dev/null || true
     if [ -s "$REFRESH_LOG" ]; then
-      echo "[warning] Credential refresh failed during the session; see $PROJECT_DIR/$REFRESH_LOG" >&2
+      echo "[warning] Credential refresh failed during the session; see $REFRESH_LOG" >&2
     fi
   fi
   if [ -t 1 ]; then

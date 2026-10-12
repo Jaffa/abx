@@ -65,11 +65,11 @@ _init_project() {
   fi
   cp "$POLICY_TEMPLATE" .agent-sandbox/policy/user.policy.yaml
   # An invalid policy stops the proxy, and with it the whole sandbox, so it's checked before use.
-  if agentbox policy config > "$ABX_DIR/policy-check.log" 2>&1; then
+  if agentbox policy config > "$ABX_STATE/policy-check.log" 2>&1; then
     info "Applied $POLICY_TEMPLATE as this project's policy."
   else
     echo "[warning] agentbox rejected the policy template $POLICY_TEMPLATE:" >&2
-    tail -n 5 "$ABX_DIR/policy-check.log" | sed 's/^/          /' >&2
+    tail -n 5 "$ABX_STATE/policy-check.log" | sed 's/^/          /' >&2
     if [ -f .agent-sandbox/policy/user.policy.yaml.generated ]; then
       cp .agent-sandbox/policy/user.policy.yaml.generated .agent-sandbox/policy/user.policy.yaml
       echo "          Keeping agentbox's own policy for this project; fix the template, then 'abx policy'." >&2

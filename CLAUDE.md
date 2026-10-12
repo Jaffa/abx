@@ -9,7 +9,7 @@ This file is for working on abx itself. `resources/abx-CLAUDE.md` is a different
 | Path | Purpose |
 | --- | --- |
 | `abx.sh` | The launcher. Installed by symlinking it onto `PATH` as `abx` |
-| `lib/` | The modules abx.sh sources from its real location: output helpers, terminal handling, port publishing, Bedrock, the UID alignment and derived image, settings and project setup. The Python programs they run are here too (`lib/*.py`). Required: abx stops with an error if it's missing |
+| `lib/` | The modules abx.sh sources from its real location: output helpers, host state, terminal handling, port publishing, Bedrock, the UID alignment and derived image, settings and project setup. The Python programs they run are here too (`lib/*.py`). Required: abx stops with an error if it's missing |
 | `resources/` | Files abx itself depends on, used in place. Never copied to the user's configuration |
 | `resources/abx-CLAUDE.md` | The sandbox instructions, appended to Claude Code's managed `CLAUDE.md` in the agent image. Required: abx warns if it's missing |
 | `resources/abx-bedrock-signer.py` | The Bedrock gateway: a standard-library SigV4 signing proxy, built into a small image by abx. Required for `--bedrock` |
@@ -33,13 +33,13 @@ abx locates `lib/` and `resources/` relative to the real location of `abx.sh`, f
 
 ## What abx does on each run
 
-`abx.sh` runs these steps in order. The module named at the end of each step holds its code.
+`abx.sh` runs these steps in order. The module named at the end of each step holds its code. Host-only state goes to the state directory, and `.abx/` is written only for the container.
 
 1. **Finds the project root.** It takes the nearest directory, from the current one upwards, containing `.agent-sandbox/` or `.abx/`; then the git root; then the current directory. The search stops below `$HOME`, and `/`, `$HOME` and `/Users`-style paths are refused. Markers come before git so a nested repository isn't mistaken for the project. Code: `lib/project.sh`.
 2. **Initialises** with `agentbox init --agent claude --mode cli --name <dir>` if there's no sandbox yet, then applies the user's policy template. Code: `lib/project.sh`.
 3. **Records the project name** in `.abx/project-name` for the statusline, since the container only ever sees `/workspace`. Code: `lib/settings.sh`.
 4. **Excludes** `.agent-sandbox/`, `.abx/` and `.pnpm-store/` via `.git/info/exclude`, never `.gitignore`. All three exist only because the project runs in abx's sandbox, so they're personal to this clone; `.gitignore` is shared project content, and editing it would leave changes in repositories the user may not own. `.pnpm-store/` is the one tool-specific entry: pnpm hard-links from its store, so it needs the store on the project's filesystem, which inside the sandbox is the `/workspace` mount. On a normal host, the store sits in the home directory and never appears in the project. Add another exclusion only when the sandbox itself causes a tool to write into the project; anything a normal host workflow also produces is the project's own business. Code: `lib/project.sh`.
-5. **Ensures the agent can write to the project**, building a derived image when needed (see the #206 workaround). Code: `lib/image.sh`.
+5. **Ensures the agent can write to the project**, building a derived image when needed (see the #206 workaround), and mounting `.abx/` read-only in the agent on every run. Code: `lib/image.sh`.
 6. **Prepares Bedrock**, if enabled for the project. Code: `lib/bedrock.sh`.
 7. **Writes `.abx/settings.json`** and launches Claude Code in the matching subdirectory of `/workspace`, with `--settings /workspace/.abx/settings.json`. Code: `lib/settings.sh`, with `lib/write_settings.py`.
 8. **Restores the terminal** on exit, by resetting text attributes and terminal modes and restoring `stty` state, then stops the credential refresher. Code: `lib/terminal.sh`.
@@ -49,8 +49,8 @@ abx locates `lib/` and `resources/` relative to the real location of `abx.sh`, f
 | Feature | How it works |
 | --- | --- |
 | Starting in a subdirectory | From `project/sub`, Claude starts in `/workspace/sub`, equivalent to running `/cd sub` at the start of a session. Sessions are stored by starting directory, so `--continue` is per directory |
-| abx's own settings | `.abx/settings.json` holds the statusline and Bedrock settings, with absolute container paths. It's regenerated every run and passed with `--settings`, so abx never edits the project's `.claude/` files. Earlier versions wrote to `.claude/settings.local.json`; `_remove_legacy_settings` removes those keys and nothing else |
-| Bedrock mode | `abx --bedrock` is remembered per project in `.abx/bedrock-profile`. A gateway container (`abx-gateway-<project>`, alias `abx-gateway` on the project network) runs `resources/abx-bedrock-signer.py`. It holds the credentials, signs Claude Code's requests with SigV4, and forwards only model-inference paths to one fixed endpoint, `bedrock-runtime.<region>.amazonaws.com`. Claude Code runs with `CLAUDE_CODE_USE_BEDROCK=1`, `ANTHROPIC_BEDROCK_BASE_URL=http://abx-gateway:8787`, `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`, and `abx-gateway` appended to the container's existing `NO_PROXY`. On the host, `aws configure export-credentials --format process` writes the credentials to `${XDG_RUNTIME_DIR:-~/.cache}/abx/<project>/creds/` (mode `700`, outside the project), refreshed every 10 minutes (`ABX_BEDROCK_REFRESH`); the signer re-reads the file when it changes. Concurrent sessions share one gateway, tracked by PID files beside the credentials, and the last to exit removes it and the credentials. No AWS credentials ever enter the agent container, and Bedrock needs no allowlist entries because its traffic bypasses agentbox's proxy |
+| abx's own settings | `.abx/settings.json` holds the statusline and Bedrock settings, with absolute container paths. It's regenerated every run and passed with `--settings`, so abx never edits the project's `.claude/` files. `.abx/` is mounted read-only in the agent at `/workspace/.abx`, through an entry in agentbox's override tagged `# abx: uid-remap`. Earlier versions wrote to `.claude/settings.local.json`; `_remove_legacy_settings` removes those keys and nothing else |
+| Bedrock mode | `abx --bedrock` is remembered per project in the state directory (`bedrock-profile`, see [Security](#security-model-and-rules-for-changes)). A gateway container (`abx-gateway-<project>`, alias `abx-gateway` on the project network) runs `resources/abx-bedrock-signer.py`. It holds the credentials, signs Claude Code's requests with SigV4, and forwards only model-inference paths to one fixed endpoint, `bedrock-runtime.<region>.amazonaws.com`. Claude Code runs with `CLAUDE_CODE_USE_BEDROCK=1`, `ANTHROPIC_BEDROCK_BASE_URL=http://abx-gateway:8787`, `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`, and `abx-gateway` appended to the container's existing `NO_PROXY`. On the host, `aws configure export-credentials --format process` writes the credentials to `${XDG_RUNTIME_DIR:-~/.cache}/abx/<project>/creds/` (mode `700`, outside the project), refreshed every 10 minutes (`ABX_BEDROCK_REFRESH`); the signer re-reads the file when it changes. Concurrent sessions share one gateway, tracked by PID files beside the credentials, and the last to exit removes it and the credentials. No AWS credentials ever enter the agent container, and Bedrock needs no allowlist entries because its traffic bypasses agentbox's proxy |
 | Statusline | Opt-in. If `~/.config/agent-sandbox/abx/statusline.sh` (or `$ABX_STATUSLINE`) exists, it's copied to `.abx/statusline.sh` on every run, which discards changes the agent made. If not, any previously installed statusline is removed |
 | Image extras | `~/.config/agent-sandbox/abx/Dockerfile.extra` is layered into the agent image, running as root. Changes trigger a rebuild on the next run |
 | Sandbox instructions | `resources/abx-CLAUDE.md`, or the user's `~/.config/agent-sandbox/abx/CLAUDE.md` if present, is appended to `/etc/claude-code/CLAUDE.md` in the image, after any upstream content. The agent can read it but not change it |
@@ -70,13 +70,13 @@ Each of these exists only because of an open agentbox issue. When the issue is r
 
 abx's workaround (`_ensure_uid_match` and the functions near it):
 
-1. **Probe.** abx runs a shell inside the container that reports the agent's UID and username, and whether it can create a file in `/workspace`. Everything agentbox prints goes to `.abx/probe.log`.
+1. **Probe.** abx runs a shell inside the container that reports the agent's UID and username, and whether it can create a file in `/workspace`. Everything agentbox prints goes to the state directory's `probe.log`.
 2. **Mismatch found.** It builds a derived image from the running container's upstream image:
    - The agent user is renumbered to the host UID. Any account already holding that UID is moved to 59999 first, and files the old UID owned are re-owned.
    - The image's original `USER` is restored at the end.
 3. **Point the project at it.** `image:` and `pull_policy: never` are merged into `services.agent` in agentbox's override, with each line tagged `# abx: uid-remap`. After merging, abx checks the result appears in `agentbox compose config`, restoring the file from backup if it doesn't.
 4. **Restart and re-own.** It stops the project's containers and re-owns files in volumes **only the agent mounts**.
-5. **Record.** `.abx/uid-ok` records that the check passed for this host UID. `.abx/uid-remap.env` records the base image, user, UIDs and a hash of the image additions.
+5. **Record.** `uid-ok` in the state directory records that the check passed for this host UID. `uid-remap.env` records the base image, user, UIDs and a hash of the image additions.
 
 The same derived image carries the image extras and the sandbox instructions, so abx builds it on macOS too whenever there are additions (with no renumbering).
 
@@ -104,6 +104,7 @@ When #177 lands, move the template to `templates/policy/user.policy.yaml` and dr
 
 The agent can write anything in the project directory. Treat every file there as untrusted.
 
+- **The host never trusts a file the agent can write.** Everything abx reads back on the host lives in its state directory, `${XDG_STATE_HOME:-~/.local/state}/abx/<project>-<hash>`, mode `700`, outside the project. The project's `.abx/` holds only files for the container (settings, the statusline, the project name); it's mounted read-only in the agent, and abx never reads it back for a decision. Anything read from a file is checked against a pattern in `lib/state.sh` and never sourced or evaluated, and one bad value discards the file with a message. Every Python program runs with `python3 -I`, so neither the working directory, `PYTHONPATH` nor the user's site-packages can supply a module.
 - **Keep credentials out of the agent container and the project.** Anything that authenticates belongs in a sidecar the agent can only send requests to, like the Bedrock gateway, with its secrets outside the project directory. Gateways forward to fixed upstreams and fixed paths only; a gateway that follows the request's `Host` header or exposes a management API would let the agent escape the allowlist.
 - **Never execute project files on the host.** Anything abx runs or reads with consequences must come from abx itself, the user's config directory, or be regenerated by abx before use.
 - **Sanitise anything read from the project before printing it.** The statusline strips control characters from names it reads, because a crafted file could otherwise send escape sequences to the terminal.
@@ -123,7 +124,7 @@ The agent can write anything in the project directory. Treat every file there as
 - **The script runs under `set -euo pipefail`.** Two traps have already caused bugs:
   - A failing pipeline inside a command substitution exits the script *silently*. Add `|| true` and handle the empty result explicitly, with a message saying what failed and where its log is.
   - `grep -q` in a pipeline can cause a SIGPIPE upstream, which `pipefail` reports as failure. Use `grep … >/dev/null` instead.
-- **Output** goes through `info`, `debug` and `die`. Error messages say what happened and what to do next. Keep build output in `.abx/build.log`, shown only on failure.
+- **Output** goes through `info`, `debug` and `die`. Error messages say what happened and what to do next. Keep build output in the state directory's `build.log`, shown only on failure.
 - **Edits to user files** are structural: merge and preserve, write a temporary file and `mv` it into place, and keep a backup when validating afterwards. Use Python for JSON and the Compose override (`python3` is required on the host).
 - **Comments** explain why: a constraint, a workaround, a security reason. They never restate the code or narrate a change.
 - **Library files** (`lib/*.sh`) contain only functions and constants; anything that depends on the project or environment is set up by a `_<module>_init_vars` function that `abx.sh` calls.

@@ -16,8 +16,9 @@ setup() {
   export PATH="$T/bin:$PATH"
   ln -s "$REPO_DIR/abx.sh" "$HOME/.local/bin/abx"
   printf 'domains:\n  - docs.example.com\n' > "$ABX_TEMPLATE_DIR/user.policy.yaml"
-  unset ABX_PORTS ABX_STATUSLINE ABX_CLAUDE_MD ABX_IMAGE_EXTRAS ABX_BEDROCK_PROFILE ABX_BEDROCK_REFRESH \
+  unset ABX_PORTS ABX_CLAUDE_DIR ABX_IMAGE_EXTRAS ABX_BEDROCK_PROFILE ABX_BEDROCK_REFRESH \
         ABX_ALLOW_ROOT ABX_SKIP_UID_CHECK ABX_DEBUG ABX_QUIET ABX_CONFIG_DIR XDG_STATE_HOME VISUAL EDITOR TZ
+  export XDG_CACHE_HOME="$T/cache"
   export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=t@example.com
   state probe "1000 dev writable"
   new_project proj

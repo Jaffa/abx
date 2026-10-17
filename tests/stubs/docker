@@ -112,7 +112,6 @@ case "$1" in
     echo "$tag" > "$S/images/$(tagfile "$tag")"
     printf '%s' "$labels" > "$S/image-labels/$(tagfile "$tag")"
     cp "$ctx/Dockerfile" "$S/built/$(tagfile "$tag").Dockerfile"
-    [ -f "$ctx/abx-CLAUDE.md" ] && cp "$ctx/abx-CLAUDE.md" "$S/built/$(tagfile "$tag").abx-CLAUDE.md"
     [ -f "$ctx/signer.py" ] && cp "$ctx/signer.py" "$S/built/$(tagfile "$tag").signer.py"
     echo built ;;
   image)

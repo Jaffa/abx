@@ -78,12 +78,12 @@ Environment:
   ABX_BEDROCK_REFRESH    seconds between credential refreshes (default 600)
   ABX_ALLOW_ROOT         set to true to bypass the refusal to run as root
   ABX_SKIP_UID_CHECK     set to true to skip checking that the agent can write to the project
-  ABX_IMAGE_EXTRAS       Dockerfile fragment layered into the agent image, run as root
+  ABX_CONFIG_DIR         where abx's configuration lives (default ~/.config/agent-sandbox/abx)
+  ABX_IMAGE_EXTRAS       Dockerfile fragment layered into the agent image, run as root, or 'off'
                          (default ~/.config/agent-sandbox/abx/Dockerfile.extra)
-  ABX_STATUSLINE         statusline script to install, or 'off'. Default: ~/.config/agent-sandbox/abx/statusline.sh
-                         if present (examples/statusline.sh is a starting point); otherwise none
-  ABX_CLAUDE_MD          instructions added to the sandbox image, or 'off'. Default: ~/.config/agent-sandbox/abx/CLAUDE.md
-                         if present, otherwise resources/abx-CLAUDE.md
+  ABX_CLAUDE_DIR         Claude Code's configuration, laid out as a .claude directory: CLAUDE.md, statusline.sh and
+                         skills/<name>/SKILL.md. Read-only in the sandbox, or 'off'. Default: ~/.config/agent-sandbox/abx/claude.
+                         Without a CLAUDE.md there, abx's own instructions are used.
 EOF
 }
 
@@ -205,18 +205,14 @@ _settings_init_vars
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 case "$COMMAND" in
-  claude|shell|rebuild) _timezone_init_vars; _check_containers ;;
+  claude|shell|rebuild) _timezone_init_vars; _claude_init_vars; _check_containers ;;
 esac
 
 case "$COMMAND" in
   claude)
     info "Project: $PROJECT_DIR${START_REL:+ (starting in ${START_REL#/})}"
-    if [ "${ABX_CLAUDE_MD:-}" != off ] && [ -z "$(_claude_md_template)" ]; then
-      echo "[warning] $(_resources_dir)/abx-CLAUDE.md is missing, so the sandbox has no abx instructions. Is the installation complete?" >&2
-    fi
     _record_project_name
-    _remove_legacy_settings
-    _install_statusline
+    _remove_legacy_files
     _ensure_timezone
     _ensure_uid_match
     _ensure_abx_mount
@@ -239,7 +235,8 @@ case "$COMMAND" in
     _write_abx_settings
     # 'agentbox exec' passes its arguments through verbatim, so a small shell sets the directory.
     _run_interactive agentbox exec sh -c 'cd "$1" && shift && exec claude "$@"' abx \
-      "$SANDBOX_WORKSPACE$START_REL" --settings "$SANDBOX_WORKSPACE/$ABX_SETTINGS" \
+      "$SANDBOX_WORKSPACE$START_REL" ${CLAUDE_ADD_DIR_ARGS[@]+"${CLAUDE_ADD_DIR_ARGS[@]}"} \
+      --settings "$SANDBOX_WORKSPACE/$ABX_SETTINGS" \
       ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
     ;;
   shell)

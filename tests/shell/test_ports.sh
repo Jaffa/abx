@@ -50,7 +50,7 @@ test_all_ports_busy_continues_without() {
   run_abx --ports=47140 -p hi
   assert_status 0
   assert_out_contains "All the requested ports are already in use"
-  assert_eq "$(settings_json "'env' in d")" "False" "no ports told to Claude"
+  assert_eq "$(settings_json "'ABX_PUBLISHED_PORTS' in d['env']")" "False" "no ports told to Claude"
 }
 
 test_other_docker_error_reported_and_session_continues() {

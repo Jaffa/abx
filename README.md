@@ -52,17 +52,18 @@ abx reads your configuration from `~/.config/agent-sandbox/`. Nothing here is re
 | --- | --- |
 | `templates/user.policy.yaml` | The network policy applied to each new project. If it doesn't exist, new projects keep agentbox's own policy. [`examples/user.policy.yaml`](examples/user.policy.yaml) is a starting point |
 | `abx/Dockerfile.extra` | Extra build steps for the agent image, run as root. [`examples/Dockerfile.extra`](examples/Dockerfile.extra) adds Node.js, npm, pnpm, Yarn, Python and Chromium |
-| `abx/statusline.sh` | A Claude Code statusline for the sandbox. [`examples/statusline.sh`](examples/statusline.sh) shows the project's name rather than `/workspace` |
-| `abx/CLAUDE.md` | Replaces abx's default sandbox instructions ([`resources/abx-CLAUDE.md`](resources/abx-CLAUDE.md)) |
+| `abx/claude/` | Claude Code's configuration, laid out as a `.claude` directory: `CLAUDE.md` (instructions, replacing abx's defaults), `statusline.sh` and `skills/<name>/SKILL.md`. Mounted read-only in the sandbox. [`examples/statusline.sh`](examples/statusline.sh) is a statusline that shows the project's name rather than `/workspace` |
 
 agentbox reads its own configuration from the same directory, such as its dotfiles; [Git](#git) covers the one most people need.
 
 ```bash
 mkdir -p ~/.config/agent-sandbox/abx
-cp ~/src/abx/examples/Dockerfile.extra ~/src/abx/examples/statusline.sh ~/.config/agent-sandbox/abx/
+mkdir -p ~/.config/agent-sandbox/abx/claude
+cp ~/src/abx/examples/Dockerfile.extra ~/.config/agent-sandbox/abx/
+cp ~/src/abx/examples/statusline.sh ~/.config/agent-sandbox/abx/claude/
 ```
 
-abx rebuilds the image automatically on the next run whenever `Dockerfile.extra` or the instructions change.
+abx rebuilds the image automatically on the next run whenever `Dockerfile.extra` changes. Changes to `claude/` take effect on the next run, without a rebuild.
 
 ## Usage
 
@@ -169,7 +170,8 @@ Dotfiles are opt-in in agentbox; see its documentation for enabling them. Withou
 | Where | What |
 | --- | --- |
 | `<project>/.agent-sandbox/` | agentbox's per-project configuration, including the network policy |
-| `<project>/.abx/` | Files for the sandbox: abx's Claude Code settings, the statusline and the project's name. Read-only inside the container, and rewritten on every run |
+| `<project>/.abx/` | Files for the sandbox: abx's Claude Code settings and the project's name. Read-only inside the container, and rewritten on every run |
+| `~/.cache/abx/` | Build contexts abx generates for its images, rewritten when needed |
 | `<project>/.git/info/exclude` | Entries for `.agent-sandbox/`, `.abx/` and `.pnpm-store/`, so they stay out of git without changing the project's shared `.gitignore` |
 | `~/.local/state/abx/` | abx's state for each project, which it never keeps where the agent could change it |
 | `$XDG_RUNTIME_DIR/abx/` (or `~/.cache/abx/`) | Bedrock credentials while a session runs, removed afterwards |

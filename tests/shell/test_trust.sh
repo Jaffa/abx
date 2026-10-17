@@ -97,7 +97,7 @@ test_uid_ok_in_project_is_not_trusted() {
   mkdir -p .abx && printf '1000\n' > .abx/uid-ok
   state probe "501 dev readonly"
   reset_calls
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_calls_contain "docker build"
 }
 
@@ -110,7 +110,7 @@ test_state_dir_is_private() {
 
 test_logs_and_host_state_are_kept_in_state_dir() {
   state probe "501 dev readonly"
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_file "$(state_dir)/probe.log"
   assert_file "$(state_dir)/uid-ok"
   assert_no_file .abx/probe.log
@@ -121,7 +121,7 @@ test_old_uid_remap_is_migrated_when_valid() {
   mkdir -p .abx
   printf '%s\n' 'BASE=ghcr.io/mattolson/agent-sandbox-claude:latest' 'USER_NAME=dev' 'ORIG_USER=' \
     'OLD_UID=501' 'TARGET_UID=1000' 'EXTRAS_HASH=none' > .abx/uid-remap.env
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_out_contains "Moved the derived-image state from .abx/"
   assert_file_contains "$(state_dir)/uid-remap.env" "OLD_UID=501"
   assert_no_file .abx/uid-remap.env
@@ -130,7 +130,7 @@ test_old_uid_remap_is_migrated_when_valid() {
 test_invalid_old_uid_remap_is_discarded() {
   mkdir -p .abx
   printf '%s\n' 'BASE=x; touch "$ABX_TEST_STATE/pwned"' 'USER_NAME=dev' 'OLD_UID=501' > .abx/uid-remap.env
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_out_contains "Discarded .abx/uid-remap.env"
   assert_no_file .abx/uid-remap.env
   assert_no_file "$(state_dir)/uid-remap.env"
@@ -182,7 +182,7 @@ test_existing_state_copy_wins_over_old_file() {
 
 test_old_uid_ok_is_deleted_without_migration() {
   mkdir -p .abx && printf '1000\n' > .abx/uid-ok
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_no_file .abx/uid-ok
   assert_file "$(state_dir)/uid-ok"
 }
@@ -194,7 +194,7 @@ abx_mount_lines() {
 }
 
 test_abx_mount_is_added_to_agentbox_scaffold() {
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   local override=.agent-sandbox/compose/user.override.yml
   assert_file_contains "$override" "source: \"$(pwd -P)/.abx\"  # abx: uid-remap"
@@ -205,16 +205,16 @@ test_abx_mount_is_added_to_agentbox_scaffold() {
 }
 
 test_abx_mount_is_applied_again_without_duplicating() {
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   reset_calls
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_eq "$(abx_mount_lines)" "1" "one mount after a second run"
   assert_calls_lack "docker rm -f"
 }
 
 test_abx_mount_is_added_to_override_without_volumes() {
   printf '%s\n' 'services:' '  agent:' '    environment:' '      FOO: bar' > "$ABX_TEST_STATE/override-scaffold"
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_file_contains .agent-sandbox/compose/user.override.yml "    volumes:"
   assert_file_contains .agent-sandbox/compose/user.override.yml "FOO: bar"
@@ -223,7 +223,7 @@ test_abx_mount_is_added_to_override_without_volumes() {
 
 test_abx_mount_is_restored_when_agentbox_ignores_it() {
   state override-ignored yes
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 1
   assert_out_contains "didn't pick up the new mount"
   assert_file_lacks .agent-sandbox/compose/user.override.yml "abx: uid-remap"
@@ -231,13 +231,13 @@ test_abx_mount_is_restored_when_agentbox_ignores_it() {
 }
 
 test_abx_mount_recreates_containers_only_when_added() {
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   printf '%s\n' 'services:' '  agent:' '    environment:' '      FOO: bar' > .agent-sandbox/compose/user.override.yml
   container_add ctr-agent
   reset_calls
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
   reset_calls
-  ABX_CLAUDE_MD=off run_abx -p hi
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_eq "$(wc -l < "$ABX_TEST_STATE/events" | tr -d ' ')" "0" "no containers removed when nothing changed"
 }

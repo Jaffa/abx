@@ -36,7 +36,7 @@ _expand_ports() {
 }
 
 _ensure_forwarder_image() {
-  local dir="$ABX_CONFIG_DIR/port-forwarder"
+  local dir="$(_cache_dir)/port-forwarder"
   docker image inspect "$FORWARDER_IMAGE" >/dev/null 2>&1 && return 0
   mkdir -p "$dir"
   printf '%s\n' 'FROM alpine:3' 'RUN apk add --no-cache socat' 'USER nobody' > "$dir/Dockerfile"

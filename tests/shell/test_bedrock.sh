@@ -43,7 +43,7 @@ test_bedrock_mode_is_remembered_and_can_be_turned_off() {
   assert_eq "$(settings_json "d['env']['CLAUDE_CODE_USE_BEDROCK']")" "1" "remembered"
   run_abx --no-bedrock -p hi
   assert_out_contains "Bedrock mode is off"
-  assert_eq "$(settings_json "'env' in d")" "False" "Bedrock settings removed"
+  assert_eq "$(settings_json "'CLAUDE_CODE_USE_BEDROCK' in d['env']")" "False" "Bedrock settings removed"
   assert_no_file "$(state_dir)/bedrock-profile"
 }
 

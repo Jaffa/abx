@@ -17,3 +17,9 @@ _resources_dir() {
 _abx_dir() {
   printf '%s' "$ABX_HOME"
 }
+
+# Build contexts abx generates. They're rewritten whenever they're needed, so they're a cache, not configuration the
+# user edits, and they stay out of the configuration directory.
+_cache_dir() {
+  printf '%s/abx' "${XDG_CACHE_HOME:-$HOME/.cache}"
+}

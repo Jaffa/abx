@@ -1,9 +1,10 @@
 # Run as a file rather than from stdin, so the working directory (the project, which the agent can write to) isn't first on sys.path.
 # Merges abx's settings into agentbox's compose override, for the agent service only. The file is edited as text,
 # since the standard library has no YAML parser, so every line abx adds carries MARK, and the user's own keys are
-# left alone. usage: merge_override.py FILE IMAGE SOURCE
+# left alone. usage: merge_override.py FILE IMAGE TARGET=SOURCE...
 #   IMAGE is the derived image to run, or empty to leave the agent's image alone.
-#   SOURCE is the absolute path of the project's .abx/ directory, mounted read-only in the agent.
+#   TARGET=SOURCE mounts the absolute path SOURCE read-only in the agent at TARGET. Any other mount abx wrote earlier
+#   is removed.
 # Prints 'unchanged', 'changed' or 'conflict' (the user already sets the agent's image or build).
 import json
 import os
@@ -11,7 +12,6 @@ import re
 import sys
 
 MARK = "# abx: uid-remap"
-MOUNT_TARGET = "/workspace/.abx"
 
 
 def indent_of(line):
@@ -47,11 +47,11 @@ def locate(lines):
     return svc, agent, child, key
 
 
-def mount_lines(indent, source):
+def mount_lines(indent, target, source):
     return [
         indent + "- type: bind  " + MARK,
         indent + "  source: " + json.dumps(source) + "  " + MARK,
-        indent + "  target: " + MOUNT_TARGET + "  " + MARK,
+        indent + "  target: " + target + "  " + MARK,
         indent + "  read_only: true  " + MARK,
     ]
 
@@ -60,8 +60,52 @@ class Conflict(Exception):
     pass
 
 
-def merge(text, image, source):
-    """Returns the merged text, or raises Conflict."""
+def abx_mounts(lines, agent, child):
+    """The target line of each mount abx wrote in the agent service, as (index, target)."""
+    found = []
+    for j in range(agent + 1, block_end(lines, agent, child)):
+        m = re.match(r"^\s*(?:- )?target: (/\S*)\s", lines[j])
+        if m and MARK in lines[j]:
+            found.append((j, m.group(1)))
+    return found
+
+
+def mount_start(lines, target_index):
+    """The first of abx's four lines for the mount whose target line is TARGET_INDEX. Raises Conflict if they aren't as abx wrote them."""
+    start = target_index - 2
+    if not (re.match(r"^\s*- type: bind", lines[start]) and re.match(r"^\s*source:", lines[start + 1])
+            and re.match(r"^\s*read_only:", lines[start + 3])):
+        raise Conflict()
+    return start
+
+
+def insert_mount(lines, agent, child, key, target, source):
+    a_end = block_end(lines, agent, child)
+    vol = next((j for j in range(agent + 1, a_end) if re.match(r"^%svolumes:" % (" " * key), lines[j])), None)
+    if vol is None:
+        lines[agent + 1:agent + 1] = [" " * key + "volumes:"] + mount_lines(" " * (key + 2), target, source)
+        return
+    if not re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})?\s*(#.*)?$", lines[vol]):
+        raise Conflict()
+    if re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})", lines[vol]):
+        lines[vol] = " " * key + "volumes:"
+    last, item = vol, None
+    for j in range(vol + 1, a_end):
+        if not is_content(lines[j]):
+            continue
+        stripped = lines[j].strip()
+        if indent_of(lines[j]) > key or (indent_of(lines[j]) == key and stripped.startswith("-")):
+            last = j
+            if item is None and stripped.startswith("-"):
+                item = indent_of(lines[j])
+        else:
+            break
+    indent = item if item is not None else key + 2
+    lines[last + 1:last + 1] = mount_lines(" " * indent, target, source)
+
+
+def merge(text, image, mounts):
+    """Returns the merged text, or raises Conflict. MOUNTS is a list of (target, source) pairs."""
     lines = text.rstrip("\n").split("\n") if text.strip() else []
     svc, agent, child, key = locate(lines)
     if svc is None:
@@ -87,52 +131,34 @@ def merge(text, image, source):
         else:
             lines[agent + 1:agent + 1] = [" " * key + "image: " + image + "  " + MARK,
                                           " " * key + "pull_policy: never  " + MARK]
-            a_end += 2
 
-    if source:
-        target = next((j for j in range(agent + 1, a_end)
-                       if MARK in lines[j] and re.match(r"^\s*(- )?target: %s\s" % re.escape(MOUNT_TARGET), lines[j])),
-                      None)
-        if target is not None:
+    # Removed last first, so the indexes still to visit stay valid.
+    wanted = [target for target, _ in mounts]
+    for j, target in reversed(abx_mounts(lines, agent, child)):
+        if target not in wanted:
+            start = mount_start(lines, j)
+            del lines[start:start + 4]
+
+    for target, source in mounts:
+        found = [j for j, t in abx_mounts(lines, agent, child) if t == target]
+        if found:
             # abx's own four lines, written together: type, source, target, read_only.
-            start = target - 2
-            if not (re.match(r"^\s*- type: bind", lines[start]) and re.match(r"^\s*source:", lines[start + 1])
-                    and re.match(r"^\s*read_only:", lines[start + 3])):
-                raise Conflict()
-            lines[start:start + 4] = mount_lines(" " * indent_of(lines[start]), source)
+            start = mount_start(lines, found[0])
+            lines[start:start + 4] = mount_lines(" " * indent_of(lines[start]), target, source)
         else:
-            vol = next((j for j in range(agent + 1, a_end) if re.match(r"^%svolumes:" % (" " * key), lines[j])), None)
-            if vol is None:
-                lines[agent + 1:agent + 1] = [" " * key + "volumes:"] + mount_lines(" " * (key + 2), source)
-            else:
-                if not re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})?\s*(#.*)?$", lines[vol]):
-                    raise Conflict()
-                if re.match(r"^\s*volumes:\s*(\[\s*\]|\{\s*\})", lines[vol]):
-                    lines[vol] = " " * key + "volumes:"
-                last, item = vol, None
-                for j in range(vol + 1, a_end):
-                    if not is_content(lines[j]):
-                        continue
-                    stripped = lines[j].strip()
-                    if indent_of(lines[j]) > key or (indent_of(lines[j]) == key and stripped.startswith("-")):
-                        last = j
-                        if item is None and stripped.startswith("-"):
-                            item = indent_of(lines[j])
-                    else:
-                        break
-                indent = item if item is not None else key + 2
-                lines[last + 1:last + 1] = mount_lines(" " * indent, source)
+            insert_mount(lines, agent, child, key, target, source)
 
     return "\n".join(lines) + "\n"
 
 
-path, image, source = sys.argv[1], sys.argv[2], sys.argv[3]
+path, image = sys.argv[1], sys.argv[2]
+mounts = [tuple(arg.split("=", 1)) for arg in sys.argv[3:]]
 try:
     text = open(path, encoding="utf-8").read()
 except FileNotFoundError:
     text = ""
 try:
-    new = merge(text, image, source)
+    new = merge(text, image, mounts)
 except Conflict:
     print("conflict")
     sys.exit(0)

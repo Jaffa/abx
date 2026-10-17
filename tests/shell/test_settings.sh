@@ -1,32 +1,15 @@
-# abx's own settings file, the statusline, sandbox instructions and legacy clean-up.
+# abx's own settings file, the earlier statusline copy, and legacy clean-up.
 
-test_settings_empty_without_statusline_or_bedrock() {
+test_settings_hold_only_the_env_without_statusline_or_bedrock() {
   run_abx -p hi
-  assert_eq "$(settings_json 'd')" "{}" "settings"
+  assert_eq "$(settings_json 'd')" "{'env': {'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD': '1'}}" "settings"
 }
 
-test_statusline_installed_only_from_config_directory() {
+test_earlier_statusline_copy_is_removed() {
+  mkdir -p .abx
+  printf 'echo old\n' > .abx/statusline.sh
   run_abx -p hi
   assert_no_file .abx/statusline.sh
-  assert_eq "$(settings_json "'statusLine' in d")" "False" "statusLine present"
-
-  cp "$REPO_DIR/examples/statusline.sh" "$CONFIG/statusline.sh"
-  run_abx -p hi
-  cmp -s .abx/statusline.sh "$CONFIG/statusline.sh" || fail "statusline should be installed from the config directory"
-  assert_eq "$(settings_json "d['statusLine']['command']")" "bash /workspace/.abx/statusline.sh" "statusLine command"
-
-  rm "$CONFIG/statusline.sh"
-  run_abx -p hi
-  assert_no_file .abx/statusline.sh
-  assert_eq "$(settings_json "'statusLine' in d")" "False" "statusLine present after removal"
-}
-
-test_statusline_changes_inside_sandbox_are_discarded() {
-  cp "$REPO_DIR/examples/statusline.sh" "$CONFIG/statusline.sh"
-  run_abx -p hi
-  echo "echo tampered" >> .abx/statusline.sh
-  run_abx -p hi
-  assert_file_lacks .abx/statusline.sh "tampered"
 }
 
 test_settings_file_rewritten_every_run() {
@@ -56,8 +39,8 @@ test_missing_instructions_file_is_reported() {
   cp -R "$REPO_DIR/lib" "$T/partial/lib"
   ln -sf "$T/partial/abx.sh" "$HOME/.local/bin/abx"
   run_abx -p hi
-  assert_out_contains "resources/abx-CLAUDE.md is missing"
-  ABX_CLAUDE_MD=off run_abx -p hi
+  assert_out_contains "resources/claude/CLAUDE.md is missing"
+  ABX_CLAUDE_DIR=off run_abx -p hi
   assert_out_lacks "is missing"
 }
 

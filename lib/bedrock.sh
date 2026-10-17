@@ -146,7 +146,7 @@ _ensure_signer_image() {
   tag="abx/bedrock-signer:$(_sha16 < "$src")"
   SIGNER_IMAGE="$tag"
   docker image inspect "$tag" >/dev/null 2>&1 && return 0
-  dir="$ABX_CONFIG_DIR/bedrock-signer"
+  dir="$(_cache_dir)/bedrock-signer"
   mkdir -p "$dir"
   cp "$src" "$dir/signer.py"
   printf '%s\n' 'FROM python:3-alpine' 'COPY signer.py /app/signer.py' \

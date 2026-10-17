@@ -13,6 +13,8 @@ _image_init_vars() {
   HOST_UID="$(id -u)"
   PROBE_LOG="$ABX_STATE/probe.log"
   IMAGE_EXTRAS="${ABX_IMAGE_EXTRAS:-$ABX_CONFIG_DIR/Dockerfile.extra}"
+  # 'off' means no extras; an empty path is never a file, so nothing is layered in.
+  if [ "$IMAGE_EXTRAS" = off ]; then IMAGE_EXTRAS=""; fi
 }
 
 # Everything agentbox prints is kept in the probe log, since a failure here is otherwise opaque.
@@ -36,22 +38,35 @@ _override_path() {
   printf '%s' "$path"
 }
 
-_override_snippet() {
-  printf 'services:\n  agent:\n'
-  if [ -n "$1" ]; then printf '    image: %s  %s\n    pull_policy: never  %s\n' "$1" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"; fi
-  printf '    volumes:\n      - type: bind  %s\n        source: "%s/%s"  %s\n        target: /workspace/.abx  %s\n        read_only: true  %s\n' \
-    "$OVERRIDE_MARKER" "$PROJECT_DIR" "$ABX_DIR" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"
+# The directories abx mounts read-only in the agent, as TARGET=SOURCE: its own state, and Claude Code's configuration
+# (see lib/claude.sh) when present.
+_override_mounts() {
+  OVERRIDE_MOUNTS=("/workspace/.abx=$PROJECT_DIR/$ABX_DIR")
+  if [ -n "$CLAUDE_HOST" ]; then OVERRIDE_MOUNTS+=("$CLAUDE_DIR_TARGET=$CLAUDE_HOST"); fi
+  if [ -n "$DEFAULT_CLAUDE_HOST" ]; then OVERRIDE_MOUNTS+=("$DEFAULT_CLAUDE_DIR_TARGET=$DEFAULT_CLAUDE_HOST"); fi
 }
 
-# agentbox seeds the override with its own content, so abx merges two keys into the agent service
+_override_snippet() {
+  local m
+  printf 'services:\n  agent:\n'
+  if [ -n "$1" ]; then printf '    image: %s  %s\n    pull_policy: never  %s\n' "$1" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"; fi
+  printf '    volumes:\n'
+  for m in "${OVERRIDE_MOUNTS[@]}"; do
+    printf '      - type: bind  %s\n        source: "%s"  %s\n        target: %s  %s\n        read_only: true  %s\n' \
+      "$OVERRIDE_MARKER" "${m#*=}" "$OVERRIDE_MARKER" "${m%%=*}" "$OVERRIDE_MARKER" "$OVERRIDE_MARKER"
+  done
+}
+
+# agentbox seeds the override with its own content, so abx merges its keys into the agent service
 # rather than replacing the file, then checks the result through agentbox's merged configuration.
 _merge_override() {
-  python3 -I "$ABX_HOME/lib/merge_override.py" "$1" "$2" "$3"
+  python3 -I "$ABX_HOME/lib/merge_override.py" "$1" "$2" "${OVERRIDE_MOUNTS[@]}"
 }
 
 _write_override() {
-  local tag="$1" file status config missing backup=""
+  local tag="$1" file status config missing backup="" m
   command -v python3 >/dev/null 2>&1 || die "python3 is needed to update agentbox's compose override."
+  _override_mounts
   file="$(_override_path)"
   if [ -z "$file" ]; then
     echo "[error] Couldn't find agentbox's compose override file. Add this with 'agentbox edit compose':" >&2
@@ -63,7 +78,7 @@ _write_override() {
     cp "$file" "$backup"
   fi
   mkdir -p "$(dirname "$file")"
-  status="$(_merge_override "$file" "$tag" "$PROJECT_DIR/$ABX_DIR")" || die "Could not update $file"
+  status="$(_merge_override "$file" "$tag")" || die "Could not update $file"
   if [ "$status" = conflict ]; then
     rm -f "$backup"
     echo "[error] $file already sets the agent's image or build, so abx won't change it. Merge this in yourself, then rerun abx:" >&2
@@ -78,7 +93,9 @@ _write_override() {
   config="$(agentbox compose config 2>/dev/null || true)"
   missing=""
   if [ -n "$tag" ] && ! printf '%s' "$config" | grep -F "$tag" >/dev/null; then missing="new image"; fi
-  if [ -z "$missing" ] && ! printf '%s' "$config" | grep -F "target: /workspace/.abx" >/dev/null; then missing="new mount"; fi
+  for m in "${OVERRIDE_MOUNTS[@]}"; do
+    if [ -z "$missing" ] && ! printf '%s' "$config" | grep -F "target: ${m%%=*}" >/dev/null; then missing="new mount"; fi
+  done
   if [ -n "$missing" ]; then
     if [ -n "$backup" ]; then mv -f "$backup" "$file"; else rm -f "$file"; fi
     echo "[error] agentbox's merged configuration didn't pick up the $missing, so $file has been restored. Add this with 'agentbox edit compose':" >&2
@@ -91,45 +108,35 @@ _write_override() {
   debug "override $status in $file"
 }
 
-# The agent can read .abx/ but not write it, so the host's files there can't be changed from inside. Applied
-# on every run, whether or not the agent has a derived image.
+# The agent can read .abx/ and Claude Code's configuration but not write them, so the host's files there can't be
+# changed from inside. Applied on every run, whether or not the agent has a derived image, so a configuration directory
+# that's added or removed takes effect on the next run.
 _ensure_abx_mount() {
   _write_override ""
 }
 
-_claude_md_template() {
-  local candidate
-  [ "${ABX_CLAUDE_MD:-}" = off ] && return 0
-  for candidate in "${ABX_CLAUDE_MD:-}" "$ABX_CONFIG_DIR/CLAUDE.md" "$(_resources_dir)/abx-CLAUDE.md"; do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then printf '%s' "$candidate"; return 0; fi
-  done
-}
-
 _has_image_additions() {
-  [ -f "$IMAGE_EXTRAS" ] || [ -n "$(_claude_md_template)" ]
+  [ -f "$IMAGE_EXTRAS" ]
 }
 
-# Changes to either addition trigger a rebuild, so both feed the stored hash.
+# A change to the extras triggers a rebuild, so the hash of the file is stored.
 _extras_hash() {
-  local md
-  md="$(_claude_md_template)"
   if ! _has_image_additions; then echo none; return 0; fi
-  { [ -f "$IMAGE_EXTRAS" ] && cat "$IMAGE_EXTRAS"; printf '\n--abx-claude-md--\n'; [ -n "$md" ] && cat "$md"; true; } | _sha16
+  _sha16 < "$IMAGE_EXTRAS"
 }
 
 # Builds the image abx points the agent service at: the upstream image with the agent user
 # renumbered to target_uid (a no-op when it already matches), plus any image extras. The labels
 # record the derived-image state, so it can be rebuilt if the state directory is lost.
 _build_derived_image() { # BASE USER ORIG_USER OLD_UID TARGET_UID [PULL]
-  local base="$1" user="$2" orig_user="$3" old_uid="$4" target_uid="$5" pull="${6:-false}" name repo tag dir md flags=() labels=()
-  md="$(_claude_md_template)"
+  local base="$1" user="$2" orig_user="$3" old_uid="$4" target_uid="$5" pull="${6:-false}" name repo tag dir flags=() labels=()
   name="${base##*/}"; name="${name%%@*}"
   repo="${name%%:*}"
   tag="latest"
   case "$name" in *:*) tag="${name#*:}" ;; esac
   REMAPPED_IMAGE="abx/${repo}-uid${target_uid}:${tag}"
 
-  dir="$ABX_CONFIG_DIR/uid-remap"
+  dir="$(_cache_dir)/uid-remap"
   mkdir -p "$dir"
   {
     cat <<'EOF'
@@ -151,15 +158,8 @@ EOF
       cat "$IMAGE_EXTRAS"
       printf '\nUSER root\n'
     fi
-    if [ -n "$md" ]; then
-      # Appended to Claude Code's managed instructions, which the agent can read but not change.
-      printf '%s\n' 'COPY abx-CLAUDE.md /tmp/abx-CLAUDE.md' \
-        'RUN mkdir -p /etc/claude-code && { printf "\\n"; cat /tmp/abx-CLAUDE.md; } >> /etc/claude-code/CLAUDE.md && rm /tmp/abx-CLAUDE.md'
-    fi
     printf '%s\n' 'USER ${ORIG_USER}'
   } > "$dir/Dockerfile"
-  rm -f "$dir/abx-CLAUDE.md"
-  if [ -n "$md" ]; then cp "$md" "$dir/abx-CLAUDE.md"; fi
 
   if [ "$pull" = true ]; then flags=(--pull); fi
   labels=(--label "abx.base=$base" --label "abx.user=$user" --label "abx.orig-user=${orig_user:-root}"

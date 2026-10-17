@@ -1,10 +1,12 @@
-# Settings for Claude Code: the statusline abx installs, and .abx/settings.json, which is passed with
-# --settings. Also the project name the sandbox reads, and the clean-up of keys that earlier versions wrote.
+# Settings for Claude Code: .abx/settings.json, which is passed with --settings. Also the project name the sandbox reads,
+# and the clean-up of files and keys that earlier versions wrote.
 
 CLAUDE_LOCAL_SETTINGS=".claude/settings.local.json"
 
-# Earlier versions of abx kept their keys in .claude/settings.local.json; remove only those keys.
-_remove_legacy_settings() {
+# Earlier versions copied the statusline into .abx/, and kept their keys in .claude/settings.local.json. Remove only what
+# they wrote: the copy, and those keys.
+_remove_legacy_files() {
+  rm -f "$ABX_DIR/statusline.sh"
   [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q '\.abx/' "$CLAUDE_LOCAL_SETTINGS" || return 0
   command -v python3 >/dev/null 2>&1 || return 0
   python3 -I "$ABX_HOME/lib/clean_legacy_settings.py" "$CLAUDE_LOCAL_SETTINGS" || echo "[warning] Could not tidy abx's old keys from $CLAUDE_LOCAL_SETTINGS" >&2
@@ -19,33 +21,6 @@ _record_project_name() {
   printf '%s\n' "$(basename "$PROJECT_DIR")" > "$ABX_DIR/project-name"
 }
 
-_statusline_template() {
-  local candidate
-  for candidate in "${ABX_STATUSLINE:-}" "$ABX_CONFIG_DIR/statusline.sh"; do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then printf '%s' "$candidate"; return 0; fi
-  done
-}
-
-STATUSLINE_ENABLED=false
-
-_install_statusline() {
-  local template tmp
-  rm -f "$ABX_DIR/statusline.sh"
-  STATUSLINE_ENABLED=false
-  [ "${ABX_STATUSLINE:-}" = off ] && return 0
-  template="$(_statusline_template)"
-  if [ -z "$template" ]; then
-    debug "no statusline template found"
-    return 0
-  fi
-  tmp="$(mktemp "$ABX_DIR/.statusline.XXXXXX")"
-  cp "$template" "$tmp"
-  chmod 755 "$tmp"
-  mv -f "$tmp" "$ABX_DIR/statusline.sh"
-  STATUSLINE_ENABLED=true
-  debug "statusline installed from $template"
-}
-
 # Derived from ABX_DIR, so this is set once the project is known rather than on sourcing.
 _settings_init_vars() {
   ABX_SETTINGS="$ABX_DIR/settings.json"
@@ -58,6 +33,6 @@ _write_abx_settings() {
   if [ "$PORTS_OWNED" = true ] || _owned_sidecar_running "$PORTS_CONTAINER"; then
     ports="$PORTS_SPEC"
   fi
-  python3 -I "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$SANDBOX_WORKSPACE" "$STATUSLINE_ENABLED" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
+  python3 -I "$ABX_HOME/lib/write_settings.py" "$ABX_SETTINGS" "$STATUSLINE_COMMAND" "$BEDROCK_ENABLED" "$BEDROCK_REGION" "$ports" \
     "http://$GATEWAY_ALIAS:$GATEWAY_PORT" "$GATEWAY_NO_PROXY"
 }

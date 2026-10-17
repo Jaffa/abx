@@ -4,7 +4,7 @@ You are running inside an agentbox container. The project is mounted at `/worksp
 
 ## Network
 
-- Outbound traffic goes through a proxy with an allowlist, readable at `/run/agentbox/policy.yaml`. A blocked request fails with HTTP 403.
+- Outbound traffic goes through an allowlisted proxy. For how it works and what to do when a request is blocked, read the `operating-in-agent-sandbox` skill, if it's installed.
 - If Claude Code is using Amazon Bedrock, requests go through a signing gateway outside the sandbox. There are no AWS credentials in this container; don't look for them or try to use the AWS CLI.
 - Don't look for ways around a block. Tell the user which host you need and why; they can allow it from the host with `abx policy`.
 - Servers you start, such as dev servers, run inside the sandbox. If the `ABX_PUBLISHED_PORTS` environment variable is set (for example `5170-5190,8080-8090`), those ports are forwarded to the user's machine: start the server on one of them, listening on `0.0.0.0` rather than localhost (for Vite, `--host 0.0.0.0 --port 5173`), and the user can open `http://localhost:<port>`. If it isn't set, nothing is forwarded: say the server is running in the sandbox, and that the user can restart with `abx --ports` to reach it.

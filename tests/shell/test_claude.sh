@@ -152,3 +152,14 @@ test_agentbox_ignoring_the_claude_mount_is_reported_with_a_snippet() {
   assert_out_contains "target: /opt/abx/.claude"
   assert_file_lacks .agent-sandbox/compose/user.override.yml "abx: uid-remap"
 }
+
+# The proxy and allowlist are explained by the upstream skill, which every agentbox image ships. The instructions point
+# to it and keep only what abx adds: the command that allows a host, and the published ports.
+test_instructions_leave_the_proxy_detail_to_the_upstream_skill() {
+  local file="$REPO_DIR/resources/claude/CLAUDE.md"
+  assert_file_contains "$file" "operating-in-agent-sandbox"
+  assert_file_contains "$file" "abx policy"
+  assert_file_contains "$file" "ABX_PUBLISHED_PORTS"
+  assert_file_lacks "$file" "/run/agentbox/policy.yaml"
+  assert_file_lacks "$file" "HTTP 403"
+}

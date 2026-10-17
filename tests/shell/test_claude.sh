@@ -117,7 +117,7 @@ test_removing_user_directory_unmounts_it_and_recreates_containers() {
 
 test_claude_configuration_is_kept_when_the_agent_gets_a_derived_image() {
   claude_skill
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   run_abx -p hi
   assert_status 0
   local override=.agent-sandbox/compose/user.override.yml
@@ -130,7 +130,7 @@ test_claude_configuration_is_kept_when_the_agent_gets_a_derived_image() {
 }
 
 test_editing_instructions_does_not_rebuild_the_image() {
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   run_abx -p hi
   mkdir -p "$CONFIG/claude"
   printf '# First version\n' > "$CONFIG/claude/CLAUDE.md"

@@ -18,7 +18,7 @@ run_python_commands() {
   run_abx -p hi
   run_abx --bedrock -p hi
   run_abx --ports=47200 -p hi
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   run_abx -p hi
 }
 
@@ -95,7 +95,7 @@ test_bedrock_profile_in_state_dir_is_validated() {
 
 test_uid_ok_in_project_is_not_trusted() {
   mkdir -p .abx && printf '1000\n' > .abx/uid-ok
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   reset_calls
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_calls_contain "docker build"
@@ -109,7 +109,7 @@ test_state_dir_is_private() {
 }
 
 test_logs_and_host_state_are_kept_in_state_dir() {
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_file "$(state_dir)/probe.log"
   assert_file "$(state_dir)/uid-ok"

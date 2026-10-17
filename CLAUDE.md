@@ -73,15 +73,15 @@ Each of these exists only because of an open agentbox issue. When the issue is r
 
 abx's workaround (`_ensure_uid_match` and the functions near it):
 
-1. **Probe.** abx runs a shell inside the container that reports the agent's UID and username, and whether it can create a file in `/workspace`. Everything agentbox prints goes to the state directory's `probe.log`.
+1. **Probe.** abx runs a shell inside the container that reports the agent's UID, username and GID, and whether it can create a file in `/workspace`. Everything agentbox prints goes to the state directory's `probe.log`.
 2. **Mismatch found.** It builds a derived image from the running container's upstream image:
-   - The agent user is renumbered to the host UID. Any account already holding that UID is moved to 59999 first, and files the old UID owned are re-owned.
+   - The agent user is renumbered to the host UID, and its group to the host GID (`id -g`). Any account already holding that UID is moved to 59999 first, and files the old UID owned are re-owned. The same goes for a group holding the host GID, and files with the old GID get the new one. A macOS host's UID already matches, so its group is left alone.
    - The image's original `USER` is restored at the end.
 3. **Point the project at it.** `image:` and `pull_policy: never` are merged into `services.agent` in agentbox's override, with each line tagged `# abx: uid-remap`. After merging, abx checks the result appears in `agentbox compose config`, restoring the file from backup if it doesn't.
 4. **Restart and re-own.** It stops the project's containers and re-owns files in volumes **only the agent mounts**.
-5. **Record.** `uid-ok` in the state directory records that the check passed for this host UID. `uid-remap.env` records the base image, user, UIDs and a hash of the image additions.
+5. **Record.** `uid-ok` in the state directory records that the check passed for this host UID and GID. `uid-remap.env` records the base image, user, UIDs and GIDs and a hash of the image additions. A record from before the group was renumbered has no GID keys; a derived image of that kind is realigned once, on a Linux host, when its group is wrong.
 
-The derived image also carries `abx.base`, `abx.user`, `abx.orig-user`, `abx.old-uid` and `abx.target-uid` labels, written at build time. If the state record is lost, a running agent on an `abx/` image gets its record back from those labels, checked the same way as a state file (`_recover_derived_record`). Labels that are missing or invalid stop abx and point at `abx clean`.
+The derived image also carries `abx.base`, `abx.user`, `abx.orig-user`, `abx.old-uid`, `abx.target-uid` and the `abx.old-gid` and `abx.target-gid` labels, written at build time. If the state record is lost, a running agent on an `abx/` image gets its record back from those labels, checked the same way as a state file (`_recover_derived_record`). Labels that are missing or invalid stop abx and point at `abx clean`.
 
 The same derived image carries the image extras, so abx builds it on macOS too whenever there are extras (with no renumbering). The sandbox instructions are mounted, not baked in (see `lib/claude.sh`).
 

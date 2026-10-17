@@ -17,7 +17,7 @@ abx is a launcher for [agent-sandbox](https://github.com/mattolson/agent-sandbox
 | --- | --- |
 | One command | `abx` from anywhere in a project initialises its sandbox on first use, then starts Claude Code in the directory you're in |
 | Isolation | From agentbox: only the project is mounted, and all traffic goes through an allowlisting proxy, except the Bedrock gateway's |
-| Works on Linux | agentbox's agent user is UID 501 (the macOS default); on Linux, abx builds a local image with the user renumbered to yours, so the agent can write to your project ([agent-sandbox#206](https://github.com/mattolson/agent-sandbox/issues/206)) |
+| Works on Linux | agentbox's agent user is UID 501 (the macOS default); on Linux, abx builds a local image with the user's UID and group renumbered to yours, so the agent can write to your project and its files carry your group ([agent-sandbox#206](https://github.com/mattolson/agent-sandbox/issues/206)) |
 | Your tools in the image | A Dockerfile fragment you write is layered into the agent image, e.g. Node.js, pnpm and Python |
 | Amazon Bedrock without credentials in the sandbox | A signing gateway beside the sandbox holds short-lived AWS credentials and signs Claude Code's requests, so the agent never sees them |
 | Dev servers you can open | `--ports` publishes ports from the sandbox for the length of the session, on localhost by default |

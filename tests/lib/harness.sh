@@ -20,7 +20,7 @@ setup() {
         ABX_ALLOW_ROOT ABX_SKIP_UID_CHECK ABX_DEBUG ABX_QUIET ABX_CONFIG_DIR XDG_STATE_HOME VISUAL EDITOR TZ
   export XDG_CACHE_HOME="$T/cache"
   export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=t@example.com
-  state probe "1000 dev writable"
+  state probe "1000 dev 100 writable"
   new_project proj
   # The Compose project name this directory gets, and the sidecar names built from it.
   PROJ_NAME="$(compose_name "$PROJECT")"; export PROJ_NAME

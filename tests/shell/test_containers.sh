@@ -18,7 +18,7 @@ started_project() {
 test_newest_running_agent_is_used_and_older_ones_are_reported() {
   container_add ctr-old agent "$DERIVED" 2026-01-01T00:00:00Z
   container_add ctr-new agent "$AGENT_IMAGE" 2026-06-01T00:00:00Z
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_out_contains "ctr-old"
@@ -30,7 +30,7 @@ test_newest_running_agent_is_used_and_older_ones_are_reported() {
 
 test_container_named_for_this_project_in_another_directory_stops_abx() {
   container_add ctr-foreign agent "$AGENT_IMAGE" 2026-06-01T00:00:00Z true "$HOME/src/other/.agent-sandbox"
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 1
   assert_out_contains "$HOME/src/other/.agent-sandbox"
@@ -53,7 +53,7 @@ test_working_dir_that_only_starts_like_the_sandbox_is_not_owned() {
 test_owned_containers_are_touched_and_foreign_ones_are_not() {
   container_add ctr-owned agent "$AGENT_IMAGE" 2026-01-01T00:00:00Z
   container_add ctr-foreign agent "$AGENT_IMAGE" 2026-06-01T00:00:00Z true "$HOME/src/other/.agent-sandbox"
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_out_contains "other/.agent-sandbox"
@@ -87,21 +87,23 @@ test_foreign_port_forwarder_with_the_same_name_is_left_alone() {
 # ── derived-image labels ───────────────────────────────────────────────────────
 
 test_derived_image_is_labelled_when_built() {
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_calls_contain "--label abx.base=$AGENT_IMAGE"
   assert_calls_contain "--label abx.user=dev"
   assert_calls_contain "--label abx.orig-user=dev"
   assert_calls_contain "--label abx.old-uid=501"
+  assert_calls_contain "--label abx.old-gid=501"
   assert_calls_contain "--label abx.target-uid=1000"
+  assert_calls_contain "--label abx.target-gid=100"
   assert_file_contains "$ABX_TEST_STATE/image-labels/abx_agent-sandbox-claude-uid1000_latest" "abx.base=$AGENT_IMAGE"
 }
 
 test_missing_record_is_recovered_from_the_image_labels() {
   image_add "$DERIVED" "abx.base=$AGENT_IMAGE" abx.user=dev abx.orig-user=dev abx.old-uid=501 abx.target-uid=1000
   container_add ctr-agent agent "$DERIVED" 2026-01-01T00:00:00Z
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_out_contains "Recovered the derived-image record"
@@ -113,7 +115,7 @@ test_missing_record_is_recovered_from_the_image_labels() {
 test_derived_image_without_labels_is_refused() {
   image_add "$DERIVED"
   container_add ctr-agent agent "$DERIVED" 2026-01-01T00:00:00Z
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 1
   assert_out_contains "abx clean"
@@ -124,7 +126,7 @@ test_derived_image_without_labels_is_refused() {
 test_derived_image_with_an_invalid_label_is_refused() {
   image_add "$DERIVED" "abx.base=$AGENT_IMAGE;rm -rf /" abx.user=dev abx.orig-user=dev abx.old-uid=501 abx.target-uid=1000
   container_add ctr-agent agent "$DERIVED" 2026-01-01T00:00:00Z
-  state probe "501 dev readonly"
+  state probe "501 dev 501 readonly"
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 1
   assert_out_contains "abx clean"

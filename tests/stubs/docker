@@ -19,6 +19,8 @@
 #   built/               the Dockerfile and context files of each built image
 #   run-args/<name>      the arguments of each 'run -d'
 #   reowned              the volumes 'run' mounted at /v, for re-owning
+#   agent-tz             the TZ of the agent's Config.Env, as the agentbox stub recorded it (see tests/stubs/agentbox);
+#                        without it, the TZ abx passed
 # 'ps' takes -a, -q, --filter (label=K, label=K=V, name=X, status=exited) and --format with {{.ID}}, {{.Names}} and
 # {{.Status}}. 'inspect -f' takes {{.Config.Image}}, {{.Created}}, {{.State.Running}}, {{index .Config.Labels "K"}},
 # and the .Mounts, .NetworkSettings and .Config.Env blocks abx reads. Image inspect takes .Config.User and labels.
@@ -180,7 +182,10 @@ case "$1" in
           proxy) echo "p_proxy-state p_proxy-ca p_proxy-run " ;;
         esac ;;
       *NetworkSettings*) echo "p_default " ;;
-      *'{{range .Config.Env}}'*) printf 'PATH=/usr/bin\nHTTP_PROXY=http://proxy:8080\nNO_PROXY=localhost,127.0.0.1,proxy\n' ;;
+      *'{{range .Config.Env}}'*)
+        printf 'PATH=/usr/bin\nHTTP_PROXY=http://proxy:8080\nNO_PROXY=localhost,127.0.0.1,proxy\n'
+        # The agent's TZ is what the agentbox stub recorded when it started the stack; otherwise the one abx passed.
+        if [ "$SERVICE" = agent ]; then printf 'TZ=%s\n' "$(cat "$S/agent-tz" 2>/dev/null || printf '%s' "${TZ:-}")"; fi ;;
       *) echo "$(render "$fmt")" ;;
     esac ;;
   run)

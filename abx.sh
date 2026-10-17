@@ -71,6 +71,7 @@ Options (before any claude args):
 Anything else is passed to claude, e.g. 'abx --continue' or 'abx -p "..."'.
 
 Environment:
+  TZ                     the sandbox's time zone (default: this host's, from /etc/localtime or /etc/timezone)
   ABX_TEMPLATE_DIR       where the default policy template lives (default ~/.config/agent-sandbox/templates)
   ABX_BEDROCK_PROFILE    host AWS profile for Bedrock mode (default claude-bedrock)
   ABX_PORTS              publish these ports in every session, e.g. '5170-5190,8080-8090' or 'default'
@@ -204,7 +205,7 @@ _settings_init_vars
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 case "$COMMAND" in
-  claude|shell|rebuild) _check_containers ;;
+  claude|shell|rebuild) _timezone_init_vars; _check_containers ;;
 esac
 
 case "$COMMAND" in
@@ -216,6 +217,7 @@ case "$COMMAND" in
     _record_project_name
     _remove_legacy_settings
     _install_statusline
+    _ensure_timezone
     _ensure_uid_match
     _ensure_abx_mount
     if [ "$BEDROCK_ENABLED" = true ]; then
@@ -242,6 +244,7 @@ case "$COMMAND" in
     ;;
   shell)
     _record_project_name
+    _ensure_timezone
     _ensure_uid_match
     _ensure_abx_mount
     if [ -n "$START_REL" ]; then

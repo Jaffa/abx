@@ -9,6 +9,8 @@
 #   exec-exit                exit status of the final 'exec'
 #   exec-hook                a script sourced during the final 'exec', while the session is "running"
 #   project-name             the name given to 'init'
+#   agent-tz                 the TZ the agent container was started with, as agentbox's compose file would take it from
+#                            the environment (America/Los_Angeles when unset)
 # Starting the stack (any 'exec' while the project has no running agent) adds its agent and proxy containers to the
 # docker stub's table, with the agent on the image the compose override names, or the upstream image. The stack's
 # network is added too. See tests/stubs/docker for the table.
@@ -25,6 +27,7 @@ start_stack() {
     return 0
   fi
   wd="$(pwd -P)/.agent-sandbox"
+  printf '%s' "${TZ:-America/Los_Angeles}" > "$S/agent-tz"
   image="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$OVERRIDE" 2>/dev/null | head -n1)"
   image="${image:-ghcr.io/mattolson/agent-sandbox-claude:latest}"
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

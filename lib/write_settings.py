@@ -3,7 +3,7 @@
 import json, os, sys
 path, statusline, bedrock, region, ports, gateway, no_proxy = sys.argv[1:8]
 data = {}
-# Claude Code reads CLAUDE.md from --add-dir directories only when this is set, and abx's directories are added that way.
+# Claude Code reads CLAUDE.md from --add-dir directories only when this is set, and the user's directory is added that way.
 env = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
 if statusline:
     data["statusLine"] = {"type": "command", "command": statusline, "padding": 0}

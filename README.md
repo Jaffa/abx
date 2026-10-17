@@ -52,7 +52,7 @@ abx reads your configuration from `~/.config/agent-sandbox/`. Nothing here is re
 | --- | --- |
 | `templates/user.policy.yaml` | The network policy applied to each new project. If it doesn't exist, new projects keep agentbox's own policy. [`examples/user.policy.yaml`](examples/user.policy.yaml) is a starting point |
 | `abx/Dockerfile.extra` | Extra build steps for the agent image, run as root. [`examples/Dockerfile.extra`](examples/Dockerfile.extra) adds Node.js, npm, pnpm, Yarn, Python and Chromium |
-| `abx/claude/` | Claude Code's configuration, laid out as a `.claude` directory: `CLAUDE.md` (instructions, replacing abx's defaults), `statusline.sh` and `skills/<name>/SKILL.md`. Mounted read-only in the sandbox. [`examples/statusline.sh`](examples/statusline.sh) is a statusline that shows the project's name rather than `/workspace` |
+| `abx/claude/` | Claude Code's configuration, laid out as a `.claude` directory: `CLAUDE.md` (memory, read alongside abx's instructions), `statusline.sh` and `skills/<name>/SKILL.md`. Mounted read-only in the sandbox. [`examples/statusline.sh`](examples/statusline.sh) is a statusline that shows the project's name rather than `/workspace` |
 
 agentbox reads its own configuration from the same directory, such as its dotfiles; [Git](#git) covers the one most people need.
 
@@ -64,6 +64,8 @@ cp ~/src/abx/examples/statusline.sh ~/.config/agent-sandbox/abx/claude/
 ```
 
 abx rebuilds the image automatically on the next run whenever `Dockerfile.extra` changes. Changes to `claude/` take effect on the next run, without a rebuild.
+
+abx's own instructions (`resources/claude/CLAUDE.md`) are added to Claude's system prompt on every run. Claude Code records the system prompt when a conversation starts and reuses it when that conversation is resumed (`--system-prompt-snapshot`, on by default). So after abx's instructions change, for example when abx is updated, resume with `--system-prompt-snapshot off`, as in `abx --continue --system-prompt-snapshot off`; otherwise the resumed conversation keeps the instructions it started with.
 
 ## Usage
 

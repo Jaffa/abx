@@ -93,7 +93,7 @@ test_git_subdirectory_initialises_at_repository_root() {
 test_claude_arguments_pass_through_unchanged() {
   run_abx --continue -p 'make it "retro" for $5'
   local expected
-  expected="$(printf '%s\n' sh -c 'cd "$1" && shift && exec claude "$@"' abx /workspace --add-dir /opt/abx-default --settings /workspace/.abx/settings.json --continue -p 'make it "retro" for $5')"
+  expected="$(printf '%s\n' sh -c 'cd "$1" && shift && exec claude "$@"' abx /workspace --append-system-prompt-file /opt/abx-base/CLAUDE.md --settings /workspace/.abx/settings.json --continue -p 'make it "retro" for $5')"
   assert_eq "$(exec_args)" "$expected" "agentbox exec arguments"
 }
 

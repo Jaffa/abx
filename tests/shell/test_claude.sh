@@ -1,5 +1,5 @@
-# Claude Code's configuration: the directory of skills, instructions and statusline mounted read-only in the sandbox and
-# passed to Claude Code with --add-dir, and abx's own instructions used when the directory has no CLAUDE.md.
+# Claude Code's configuration: abx's base instructions, always appended to the system prompt, and the user's directory,
+# mounted read-only in the sandbox and passed to Claude Code with --add-dir.
 
 # A skill in the configuration directory, laid out as a .claude directory holds it.
 claude_skill() {
@@ -7,7 +7,7 @@ claude_skill() {
   printf -- '---\nname: zebra\ndescription: Test skill\n---\nSay zebra.\n' > "$CONFIG/claude/skills/zebra/SKILL.md"
 }
 
-test_claude_directory_is_mounted_read_only_and_passed_to_claude() {
+test_user_directory_is_mounted_read_only_and_passed_to_claude() {
   claude_skill
   printf '# My rules\n' > "$CONFIG/claude/CLAUDE.md"
   local source override=.agent-sandbox/compose/user.override.yml
@@ -18,41 +18,37 @@ test_claude_directory_is_mounted_read_only_and_passed_to_claude() {
   assert_file_contains "$override" "source: \"$source\"  # abx: uid-remap"
   assert_file_contains "$override" "target: /workspace/.abx  # abx: uid-remap"
   assert_file_contains "$override" "shell.d"
-  assert_file_lacks "$override" "/opt/abx-default"
   assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}' | tr '\n' ' ')" "/opt/abx " "directories passed to --add-dir"
 }
 
-test_claude_directory_argument_comes_before_settings() {
+test_user_directory_argument_comes_before_settings() {
   # --add-dir takes several values, so a prompt after it would be read as a directory. Settings only follow it.
   claude_skill
   run_abx marker-prompt
   assert_status 0
-  assert_eq "$(exec_args | grep -n -x -e '--add-dir' -e '--settings' | cut -d: -f2 | tr '\n' ' ')" "--add-dir --add-dir --settings " "order of the flags"
+  assert_eq "$(exec_args | grep -n -x -e '--add-dir' -e '--settings' | cut -d: -f2 | tr '\n' ' ')" "--add-dir --settings " "order of the flags"
   assert_eq "$(exec_args | tail -n1)" "marker-prompt" "the prompt is passed last"
 }
 
-test_abx_instructions_are_mounted_when_there_is_no_claude_md() {
-  claude_skill
-  local default override=.agent-sandbox/compose/user.override.yml
-  default="$(cd "$REPO_DIR/resources/claude" && pwd -P)"
+test_abx_instructions_are_always_appended_to_the_system_prompt() {
+  local base override=.agent-sandbox/compose/user.override.yml
+  base="$(cd "$REPO_DIR/resources/claude" && pwd -P)"
   run_abx -p hi
   assert_status 0
-  assert_file_contains "$override" "target: /opt/abx-default/.claude  # abx: uid-remap"
-  assert_file_contains "$override" "source: \"$default\"  # abx: uid-remap"
-  assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}' | tr '\n' ' ')" "/opt/abx /opt/abx-default " "directories passed to --add-dir"
+  assert_file_contains "$override" "target: /opt/abx-base  # abx: uid-remap"
+  assert_file_contains "$override" "source: \"$base\"  # abx: uid-remap"
+  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
 }
 
-test_users_claude_md_replaces_abx_instructions() {
+test_user_claude_md_is_read_alongside_abx_instructions() {
   mkdir -p "$CONFIG/claude"
   printf '# My rules\n' > "$CONFIG/claude/CLAUDE.md"
   run_abx -p hi
   assert_status 0
-  assert_file_lacks .agent-sandbox/compose/user.override.yml "/opt/abx-default"
-  assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "1" "--add-dir arguments"
-}
-
-test_settings_let_claude_read_claude_md_from_added_directories() {
-  run_abx -p hi
+  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
+  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}')" "/opt/abx" "directory passed to --add-dir"
   assert_eq "$(settings_json "d['env']['CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD']")" "1" "environment variable"
 }
 
@@ -69,15 +65,17 @@ test_statusline_comes_from_the_claude_directory_and_is_not_copied() {
   assert_eq "$(settings_json "'statusLine' in d")" "False" "statusLine present after removal"
 }
 
-test_claude_directory_off_mounts_nothing() {
+test_user_directory_off_keeps_abx_instructions() {
   claude_skill
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
-  assert_file_lacks .agent-sandbox/compose/user.override.yml "/opt/abx"
+  assert_file_lacks .agent-sandbox/compose/user.override.yml "/opt/abx/.claude"
+  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
+  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
 }
 
-test_claude_directory_can_be_chosen_by_environment() {
+test_user_directory_can_be_chosen_by_environment() {
   mkdir -p "$T/team/skills/zebra"
   printf -- '---\nname: zebra\ndescription: Test skill\n---\n' > "$T/team/skills/zebra/SKILL.md"
   ABX_CLAUDE_DIR="$T/team" run_abx -p hi
@@ -87,21 +85,21 @@ test_claude_directory_can_be_chosen_by_environment() {
   assert_file_contains .agent-sandbox/compose/user.override.yml "source: \"$source\"  # abx: uid-remap"
 }
 
-test_missing_claude_directory_is_reported_and_abx_instructions_still_apply() {
+test_missing_user_directory_is_reported_and_abx_instructions_still_apply() {
   ABX_CLAUDE_DIR="$T/nowhere" run_abx -p hi
   assert_status 0
   assert_out_contains "isn't a directory, so it isn't mounted"
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-default/.claude  # abx: uid-remap"
+  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_file_lacks .agent-sandbox/compose/user.override.yml "target: /opt/abx/.claude  "
 }
 
-test_relative_claude_directory_is_refused() {
+test_relative_user_directory_is_refused() {
   ABX_CLAUDE_DIR=claude run_abx -p hi
   assert_status 1
   assert_out_contains "ABX_CLAUDE_DIR must be an absolute path"
 }
 
-test_removing_claude_directory_unmounts_it_and_recreates_containers() {
+test_removing_user_directory_unmounts_it_and_recreates_containers() {
   claude_skill
   run_abx -p hi
   assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx/.claude  # abx: uid-remap"
@@ -110,13 +108,14 @@ test_removing_claude_directory_unmounts_it_and_recreates_containers() {
   run_abx -p hi
   assert_status 0
   assert_file_lacks .agent-sandbox/compose/user.override.yml "target: /opt/abx/.claude  "
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-default/.claude  # abx: uid-remap"
+  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_file_contains .agent-sandbox/compose/user.override.yml "target: /workspace/.abx  # abx: uid-remap"
   assert_file_contains .agent-sandbox/compose/user.override.yml "shell.d"
+  assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
   assert_file_contains "$ABX_TEST_STATE/events" "removed ctr-agent"
 }
 
-test_claude_directory_is_kept_when_the_agent_gets_a_derived_image() {
+test_claude_configuration_is_kept_when_the_agent_gets_a_derived_image() {
   claude_skill
   state probe "501 dev readonly"
   run_abx -p hi
@@ -124,9 +123,10 @@ test_claude_directory_is_kept_when_the_agent_gets_a_derived_image() {
   local override=.agent-sandbox/compose/user.override.yml
   assert_file_contains "$override" "image: abx/agent-sandbox-claude-uid1000:latest  # abx: uid-remap"
   assert_file_contains "$override" "target: /opt/abx/.claude  # abx: uid-remap"
-  assert_file_contains "$override" "target: /opt/abx-default/.claude  # abx: uid-remap"
+  assert_file_contains "$override" "target: /opt/abx-base  # abx: uid-remap"
   assert_file_contains "$override" "target: /workspace/.abx  # abx: uid-remap"
-  assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}' | tr '\n' ' ')" "/opt/abx /opt/abx-default " "directories passed to --add-dir"
+  assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}' | tr '\n' ' ')" "/opt/abx " "directories passed to --add-dir"
+  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
 }
 
 test_editing_instructions_does_not_rebuild_the_image() {

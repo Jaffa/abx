@@ -81,9 +81,9 @@ Environment:
   ABX_CONFIG_DIR         where abx's configuration lives (default ~/.config/agent-sandbox/abx)
   ABX_IMAGE_EXTRAS       Dockerfile fragment layered into the agent image, run as root, or 'off'
                          (default ~/.config/agent-sandbox/abx/Dockerfile.extra)
-  ABX_CLAUDE_DIR         Claude Code's configuration, laid out as a .claude directory: CLAUDE.md, statusline.sh and
-                         skills/<name>/SKILL.md. Read-only in the sandbox, or 'off'. Default: ~/.config/agent-sandbox/abx/claude.
-                         Without a CLAUDE.md there, abx's own instructions are used.
+  ABX_CLAUDE_DIR         Claude Code's configuration, laid out as a .claude directory: CLAUDE.md (memory), statusline.sh
+                         and skills/<name>/SKILL.md. Read-only in the sandbox, or 'off'. Default: ~/.config/agent-sandbox/abx/claude.
+                         abx's own instructions are always included, whatever this is.
 EOF
 }
 
@@ -235,7 +235,7 @@ case "$COMMAND" in
     _write_abx_settings
     # 'agentbox exec' passes its arguments through verbatim, so a small shell sets the directory.
     _run_interactive agentbox exec sh -c 'cd "$1" && shift && exec claude "$@"' abx \
-      "$SANDBOX_WORKSPACE$START_REL" ${CLAUDE_ADD_DIR_ARGS[@]+"${CLAUDE_ADD_DIR_ARGS[@]}"} \
+      "$SANDBOX_WORKSPACE$START_REL" ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} \
       --settings "$SANDBOX_WORKSPACE/$ABX_SETTINGS" \
       ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
     ;;

@@ -41,7 +41,7 @@ test_missing_instructions_file_is_reported() {
   run_abx -p hi
   assert_out_contains "resources/claude/CLAUDE.md is missing"
   ABX_CLAUDE_DIR=off run_abx -p hi
-  assert_out_lacks "is missing"
+  assert_out_contains "is missing"
 }
 
 test_policy_command_supplies_an_editor() {

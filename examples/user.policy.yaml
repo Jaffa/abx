@@ -2,8 +2,6 @@ services:
   - claude
 
 domains:
-  # Playwright
-  - cdn.playwright.dev
   # Package registries are deliberately off by default upstream; these are your choice
   - registry.npmjs.org
   - pypi.org

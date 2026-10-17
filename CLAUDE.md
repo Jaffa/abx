@@ -16,7 +16,7 @@ This file is for working on abx itself. `resources/abx-CLAUDE.md` is a different
 | `resources/bedrock-bootstrap.sh` | One-off AWS setup, run by the user: a least-privilege IAM role, a CLI profile that assumes it, and an optional budget |
 | `examples/` | Starting points the user may copy into `~/.config/agent-sandbox/abx/`. abx never reads this directory |
 | `examples/statusline.sh` | A statusline showing the project name rather than `/workspace`. Installed only once copied to `~/.config/agent-sandbox/abx/statusline.sh` |
-| `examples/Dockerfile.extra` | Image extras adding Node.js, npm, pnpm and Yarn. Used only once copied to `~/.config/agent-sandbox/abx/Dockerfile.extra` |
+| `examples/Dockerfile.extra` | Image extras adding Node.js, npm, pnpm, Yarn, Python and Chromium. Used only once copied to `~/.config/agent-sandbox/abx/Dockerfile.extra` |
 
 abx locates `lib/` and `resources/` relative to the real location of `abx.sh`, following symlinks, so they must stay together. Anything in `examples/` must remain optional: no code path may fall back to it.
 

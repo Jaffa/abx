@@ -51,7 +51,7 @@ abx reads your configuration from `~/.config/agent-sandbox/`. Nothing here is re
 | File | Purpose |
 | --- | --- |
 | `templates/user.policy.yaml` | The network policy applied to each new project. If it doesn't exist, new projects keep agentbox's own policy. [`examples/user.policy.yaml`](examples/user.policy.yaml) is a starting point |
-| `abx/Dockerfile.extra` | Extra build steps for the agent image, run as root. [`examples/Dockerfile.extra`](examples/Dockerfile.extra) adds Node.js, npm, pnpm, Yarn and Python |
+| `abx/Dockerfile.extra` | Extra build steps for the agent image, run as root. [`examples/Dockerfile.extra`](examples/Dockerfile.extra) adds Node.js, npm, pnpm, Yarn, Python and Chromium |
 | `abx/statusline.sh` | A Claude Code statusline for the sandbox. [`examples/statusline.sh`](examples/statusline.sh) shows the project's name rather than `/workspace` |
 | `abx/CLAUDE.md` | Replaces abx's default sandbox instructions ([`resources/abx-CLAUDE.md`](resources/abx-CLAUDE.md)) |
 

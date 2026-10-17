@@ -31,5 +31,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && python3 --version
 
+# Chromium for front-end testing, at /usr/bin/chromium. Playwright can drive it with
+# chromium.launch({ executablePath: '/usr/bin/chromium' }). fonts-liberation
+# gives pages a usable default font.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium fonts-liberation \
+ && rm -rf /var/lib/apt/lists/* \
+ && chromium --version
+
 # No CA or proxy environment variables here: the upstream image configures how its tools trust
 # the sandbox proxy, and overriding NODE_EXTRA_CA_CERTS broke Claude Code's TLS to Bedrock.

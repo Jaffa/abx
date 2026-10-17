@@ -302,7 +302,7 @@ _ensure_uid_match() {
   if _state_file "$UID_MARKER" && [ "$(cat "$UID_MARKER")" = "$HOST_UID" ]; then
     if _read_uid_remap "$UID_STATE"; then
       if [ "${EXTRAS_HASH:-none}" != "$(_extras_hash)" ]; then
-        info "The image extras or abx's CLAUDE.md have changed; rebuilding."
+        info "abx's record of the image extras is out of date; rebuilding."
         _refresh_derived_image false
       fi
       return 0

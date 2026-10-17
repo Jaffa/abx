@@ -83,7 +83,7 @@ abx's workaround (`_ensure_uid_match` and the functions near it):
 
 The derived image also carries `abx.base`, `abx.user`, `abx.orig-user`, `abx.old-uid` and `abx.target-uid` labels, written at build time. If the state record is lost, a running agent on an `abx/` image gets its record back from those labels, checked the same way as a state file (`_recover_derived_record`). Labels that are missing or invalid stop abx and point at `abx clean`.
 
-The same derived image carries the image extras and the sandbox instructions, so abx builds it on macOS too whenever there are additions (with no renumbering).
+The same derived image carries the image extras, so abx builds it on macOS too whenever there are extras (with no renumbering). The sandbox instructions are mounted, not baked in (see `lib/claude.sh`).
 
 When #206 is fixed upstream, keep the derived image for additions, but drop the renumbering, the volume re-owning and the mismatch path.
 

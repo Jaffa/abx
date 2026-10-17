@@ -94,7 +94,7 @@ test_image_extras_come_only_from_config_directory() {
 
   printf 'RUN echo second-marker\n' > "$CONFIG/Dockerfile.extra"
   run_abx -p hi
-  assert_out_contains "have changed; rebuilding"
+  assert_out_contains "record of the image extras is out of date; rebuilding"
   assert_file_contains "$dockerfile" "RUN echo second-marker"
 }
 

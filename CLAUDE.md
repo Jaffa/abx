@@ -9,7 +9,7 @@ This file is for working on abx itself. `resources/claude/CLAUDE.md` is a differ
 | Path | Purpose |
 | --- | --- |
 | `abx.sh` | The launcher. Installed by symlinking it onto `PATH` as `abx` |
-| `lib/` | The modules abx.sh sources from its real location: output helpers, host state, terminal handling, time zone, port publishing, Bedrock, container ownership, the UID alignment and derived image, settings and project setup, Claude Code's configuration, and `abx clean`. The Python programs they run are here too (`lib/*.py`). Required: abx stops with an error if it's missing |
+| `lib/` | The modules abx.sh sources from its real location: output helpers, host state, terminal handling, time zone, port publishing, Bedrock, container ownership, the UID alignment and derived image, settings and project setup, Claude Code's configuration, `abx policy` and `abx reload`, and `abx clean`. The Python programs they run are here too (`lib/*.py`). Required: abx stops with an error if it's missing |
 | `resources/` | Files abx itself depends on, used in place. Never copied to the user's configuration |
 | `resources/claude/CLAUDE.md` | abx's instructions, added to the system prompt with `--append-system-prompt-file` on every run, from a read-only mount at `/opt/abx-base`. Required: abx warns if it's missing |
 | `resources/abx-bedrock-signer.py` | The Bedrock gateway: a standard-library SigV4 signing proxy, built into a small image by abx. Required for `--bedrock` |
@@ -59,7 +59,8 @@ abx locates `lib/` and `resources/` relative to the real location of `abx.sh`, f
 | `abx rebuild` | Rebuilds the derived image from the latest upstream image (`--pull`) |
 | Project names | A new project's Compose name is its directory's name and eight hex digits of a hash of its path, so two directories with the same name never share containers or volumes. The name is recorded in the state directory when the sandbox is initialised. A project set up earlier keeps its recorded name, or its directory's name when none is recorded, so its containers and volumes carry on |
 | `abx clean` | Removes this project's sandbox: its owned containers, its own gateway and port-forwarder containers, its networks once they're empty, and its Bedrock credentials. `--volumes` also removes its Compose volumes, and is refused while another directory uses the project's name. `--all` covers every agentbox project on the machine, found from the images its containers run, and with `--images` also removes `abx/` images and prunes dangling ones. `--dry-run` lists what would go and removes nothing; without `--yes`, abx asks, and on non-interactive input it refuses. The state directory and `.agent-sandbox/` and `.abx/` are kept |
-| Pass-through commands | `abx shell`, `policy`, `logs`, `reload`, `status` and `check` call the corresponding agentbox commands |
+| Pass-through commands | `abx shell`, `logs`, `status` and `check` call the corresponding agentbox commands. `abx policy` and `abx reload` do too, then check the proxy (see the next row) |
+| Policy reload | agentbox mounts each policy file into the proxy as a single-file bind mount, which Docker pins to the file's inode. An editor that saves by renaming a new file over the old one leaves the proxy reading the old content, and SIGHUP then reports `applied` with nothing changed. After `abx policy`'s editor exits, and before `abx reload` sends SIGHUP, abx reads each policy file back from the proxy with `docker exec … cat` and compares it with the host's. If one differs it validates the policy with `agentbox policy config`, restarts the proxy (a restart re-resolves the path) and waits for it to be healthy. An invalid policy is left alone, since a proxy that restarts with one exits at startup, whereas SIGHUP keeps the last good policy. Only running proxies this project owns are read or restarted. Code: `lib/policy.sh` |
 
 Environment variables are documented in `abx help`. Any new variable must be added there.
 
@@ -96,6 +97,14 @@ When #206 is fixed upstream, keep the derived image for additions, but drop the 
 - **Merges its keys** into whatever agentbox seeded.
 
 When #177 lands, move the template to `templates/policy/user.policy.yaml` and drop the copy step. The derived-image override could then be seeded from `templates/compose/user.override.yml` rather than merged after the fact. Note that the proposed layout lives in the same directory abx already uses.
+
+### #201: policy reloads see stale content
+
+[agent-sandbox#201](https://github.com/mattolson/agent-sandbox/issues/201). The proxy gets each policy file as a single-file bind mount, which Docker pins to the file's inode. An edit that replaces the file (an editor's atomic save, `sed -i`, `git checkout`) leaves the proxy reading the old content, and SIGHUP logs `applied` without changing anything. It happens on macOS as well as Linux. `agentbox edit policy` sends SIGHUP itself, so it has the same exposure.
+
+abx's workaround is `lib/policy.sh` (see Policy reload): `abx policy` and `abx reload` compare the proxy's copy of each file with the host's, and restart the proxy when they differ. The issue proposes the same check in `agentbox proxy reload`, as well as mounting the `policy/` directory instead of the files.
+
+When the issue is resolved, drop `lib/policy.sh` and make `abx policy` and `abx reload` plain pass-throughs again.
 
 ### Other upstream behaviour abx works around
 

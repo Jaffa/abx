@@ -40,9 +40,10 @@ usage() {
 Usage:
   abx [claude args...]   start Claude Code in this project's sandbox (initialising it if needed)
   abx shell              open a shell in the sandbox instead
-  abx policy             edit this project's network policy (hot-reloads a running proxy)
+  abx policy             edit this project's network policy (a running proxy picks it up, and is restarted if it
+                         can't see the saved file)
   abx logs               follow the proxy log, e.g. to see refused domains
-  abx reload             reload the proxy after editing policy files directly
+  abx reload             reload the proxy after editing policy files directly (restarts it if it can't see the saved file)
   abx status             show the effective policy and compose configuration
   abx rebuild            rebuild the derived agent image from the latest upstream image
   abx clean [options]    remove this project's sandbox containers, sidecars and networks (see below)
@@ -252,9 +253,9 @@ case "$COMMAND" in
     ;;
   rebuild) _cmd_rebuild ;;
   clean) _cmd_clean ;;
-  policy) _ensure_editor; exec agentbox edit policy ;;
+  policy) _cmd_policy ;;
   logs)   exec agentbox proxy logs ;;
-  reload) exec agentbox proxy reload ;;
+  reload) _cmd_reload ;;
   status)
     echo "── effective policy ──"; agentbox policy config
     echo ""; echo "── compose ──"; agentbox compose config

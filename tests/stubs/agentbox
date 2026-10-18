@@ -6,6 +6,7 @@
 #   generated-policy         policy content written by 'init'
 #   override-scaffold        compose override content written by 'init'
 #   override-ignored         'compose config' doesn't reflect the override
+#   edit-fails               'edit policy' fails, as when the editor exits with an error
 #   exec-exit                exit status of the final 'exec'
 #   exec-hook                a script sourced during the final 'exec', while the session is "running"
 #   project-name             the name given to 'init'
@@ -59,7 +60,9 @@ case "$1" in
     cat "$POLICY" ;;
   edit)
     case "$2" in
-      policy) printf 'VISUAL=%s EDITOR=%s\n' "${VISUAL:-}" "${EDITOR:-}" > "$S/edit-policy" ;;
+      policy)
+        printf 'VISUAL=%s EDITOR=%s\n' "${VISUAL:-}" "${EDITOR:-}" > "$S/edit-policy"
+        if [ -f "$S/edit-fails" ]; then exit 1; fi ;;
       compose) "${VISUAL:-${EDITOR:-false}}" "$OVERRIDE" ;;
     esac ;;
   compose)

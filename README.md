@@ -86,9 +86,9 @@ Run abx from a subdirectory and Claude starts there, using the enclosing project
 | --- | --- |
 | `abx [claude args]` | Starts Claude Code in the project's sandbox |
 | `abx shell` | Opens a shell in the sandbox instead |
-| `abx policy` | Edits the project's network policy; a running proxy reloads it |
+| `abx policy` | Edits the project's network policy; a running proxy reloads it, and is restarted if your editor replaced the file in a way a reload can't see |
 | `abx logs` | Follows the proxy log, e.g. to see which domains were refused |
-| `abx reload` | Reloads the proxy after editing policy files directly |
+| `abx reload` | Reloads the proxy after editing policy files directly; restarts it if it is still reading an older copy of a file |
 | `abx status` | Shows the effective policy and Compose configuration |
 | `abx rebuild` | Rebuilds the local agent image from the latest upstream image |
 | `abx clean` | Removes the project's containers, sidecars and networks (options below) |

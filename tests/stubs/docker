@@ -19,10 +19,17 @@
 #   built/               the Dockerfile and context files of each built image
 #   run-args/<name>      the arguments of each 'run -d'
 #   reowned              the volumes 'run' mounted at /v, for re-owning
+#   proxy-view/<name>    what a proxy container reads at /etc/agent-sandbox/policy/<name>. Without one it reads the host
+#                        file the container mounts (policy/user.policy.yaml, or user.agent.claude.policy.yaml for
+#                        user.agent.policy.yaml), so a test adds a view to model a mount Docker has pinned to a replaced
+#                        file. 'restart' removes every view
+#   restart-fails        'restart' fails, printing this file
+#   restart-crashes      'restart' leaves the container not running, as a proxy whose policy fails to render does
 #   agent-tz             the TZ of the agent's Config.Env, as the agentbox stub recorded it (see tests/stubs/agentbox);
 #                        without it, the TZ abx passed
-# 'ps' takes -a, -q, --filter (label=K, label=K=V, name=X, status=exited) and --format with {{.ID}}, {{.Names}} and
-# {{.Status}}. 'inspect -f' takes {{.Config.Image}}, {{.Created}}, {{.State.Running}}, {{index .Config.Labels "K"}},
+# 'exec ID cat PATH' reads a policy file as above. 'ps' takes -a, -q, --filter (label=K, label=K=V, name=X,
+# status=exited) and --format with {{.ID}}, {{.Names}} and {{.Status}}. 'inspect -f' takes {{.Config.Image}},
+# {{.Created}}, {{.State.Running}}, {{.State.Health.Status}}, {{index .Config.Labels "K"}},
 # and the .Mounts, .NetworkSettings and .Config.Env blocks abx reads. Image inspect takes .Config.User and labels.
 S="$ABX_TEST_STATE"
 mkdir -p "$S/images" "$S/built" "$S/labels" "$S/logs" "$S/run-args" "$S/image-labels"
@@ -60,6 +67,7 @@ field() {
     .Config.Image) value "$IMAGE" ;;
     .Created) printf '%s' "$CREATED" ;;
     .State.Running) printf '%s' "$RUNNING" ;;
+    .State.Health.Status) if [ "$RUNNING" = true ]; then printf 'healthy'; else printf 'unhealthy'; fi ;;
     'index .Config.Labels "'*'"') key="${1#*\"}"; key="${key%\"}"; label "$key" ;;
   esac
 }
@@ -187,6 +195,27 @@ case "$1" in
         if [ "$SERVICE" = agent ]; then printf 'TZ=%s\n' "$(cat "$S/agent-tz" 2>/dev/null || printf '%s' "${TZ:-}")"; fi ;;
       *) echo "$(render "$fmt")" ;;
     esac ;;
+  exec)
+    load "$2" || { echo "Error response from daemon: No such container: $2" >&2; exit 1; }
+    [ "$RUNNING" = true ] || { echo "Error response from daemon: container $2 is not running" >&2; exit 1; }
+    if [ "$3" = cat ]; then
+      file="${4##*/}"
+      if [ -f "$S/proxy-view/$file" ]; then cat "$S/proxy-view/$file"; exit 0; fi
+      if [ "$SERVICE" = proxy ]; then
+        case "$file" in user.agent.policy.yaml) file=user.agent.claude.policy.yaml ;; esac
+        if [ -f "$(value "$WD")/policy/$file" ]; then cat "$(value "$WD")/policy/$file"; exit 0; fi
+      fi
+      echo "cat: $4: No such file or directory" >&2
+      exit 1
+    fi ;;
+  restart)
+    load "$2" || { echo "Error response from daemon: No such container: $2" >&2; exit 1; }
+    [ -f "$S/restart-fails" ] && { cat "$S/restart-fails" >&2; exit 1; }
+    echo "restarted $NAME" >> "$S/events"
+    rm -rf "$S/proxy-view"
+    if [ -f "$S/restart-crashes" ]; then
+      awk -v k="$ID" '$1 == k { $8 = "false" } { print }' "$S/containers" > "$S/containers.tmp" && mv "$S/containers.tmp" "$S/containers"
+    fi ;;
   run)
     if [ "$2" = -d ]; then
       name="$4"

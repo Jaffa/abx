@@ -88,6 +88,9 @@ container_drop() {
   awk -v k="$1" '$1 != k' "$ABX_TEST_STATE/containers" > "$ABX_TEST_STATE/containers.tmp"
   mv "$ABX_TEST_STATE/containers.tmp" "$ABX_TEST_STATE/containers"
 }
+# proxy_sees NAME CONTENT: the proxy reads CONTENT as policy/NAME, as when Docker has pinned the mount to a file the
+# editor has since replaced (see proxy-view in tests/stubs/docker).
+proxy_sees() { mkdir -p "$ABX_TEST_STATE/proxy-view" && printf '%s\n' "$2" > "$ABX_TEST_STATE/proxy-view/$1"; }
 containers_none() { : > "$ABX_TEST_STATE/containers"; }
 # image_add TAG [KEY=VALUE...]: an image, with labels.
 image_add() {

@@ -30,14 +30,21 @@ test_user_directory_argument_comes_before_settings() {
   assert_eq "$(exec_args | tail -n1)" "marker-prompt" "the prompt is passed last"
 }
 
+# The instructions go inline: Claude Code counts --append-system-prompt-file as a restriction a restart can't carry over,
+# which stops /tui switching renderers.
+assert_instructions_appended() {
+  local args
+  args="$(exec_args)"
+  assert_eq "$(printf '%s\n' "$args" | grep -c -x -e '--append-system-prompt-file' || true)" "0" "--append-system-prompt-file arguments"
+  assert_eq "$(printf '%s\n' "$args" | grep -c -x -e '--append-system-prompt' || true)" "1" "--append-system-prompt arguments"
+  [[ "$args" == *"$(cat "$REPO_DIR/resources/claude/CLAUDE.md")"* ]] || fail "the instructions are missing from the arguments"
+}
+
 test_abx_instructions_are_always_appended_to_the_system_prompt() {
-  local base override=.agent-sandbox/compose/user.override.yml
-  base="$(cd "$REPO_DIR/resources/claude" && pwd -P)"
   run_abx -p hi
   assert_status 0
-  assert_file_contains "$override" "target: /opt/abx-base  # abx: uid-remap"
-  assert_file_contains "$override" "source: \"$base\"  # abx: uid-remap"
-  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_file_lacks .agent-sandbox/compose/user.override.yml "/opt/abx-base"
+  assert_instructions_appended
   assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
 }
 
@@ -46,8 +53,7 @@ test_user_claude_md_is_read_alongside_abx_instructions() {
   printf '# My rules\n' > "$CONFIG/claude/CLAUDE.md"
   run_abx -p hi
   assert_status 0
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
-  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_instructions_appended
   assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}')" "/opt/abx" "directory passed to --add-dir"
   assert_eq "$(settings_json "d['env']['CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD']")" "1" "environment variable"
 }
@@ -70,9 +76,8 @@ test_user_directory_off_keeps_abx_instructions() {
   ABX_CLAUDE_DIR=off run_abx -p hi
   assert_status 0
   assert_file_lacks .agent-sandbox/compose/user.override.yml "/opt/abx/.claude"
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
-  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_instructions_appended
 }
 
 test_user_directory_can_be_chosen_by_environment() {
@@ -89,7 +94,6 @@ test_missing_user_directory_is_reported_and_abx_instructions_still_apply() {
   ABX_CLAUDE_DIR="$T/nowhere" run_abx -p hi
   assert_status 0
   assert_out_contains "isn't a directory, so it isn't mounted"
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_file_lacks .agent-sandbox/compose/user.override.yml "target: /opt/abx/.claude  "
 }
 
@@ -108,7 +112,6 @@ test_removing_user_directory_unmounts_it_and_recreates_containers() {
   run_abx -p hi
   assert_status 0
   assert_file_lacks .agent-sandbox/compose/user.override.yml "target: /opt/abx/.claude  "
-  assert_file_contains .agent-sandbox/compose/user.override.yml "target: /opt/abx-base  # abx: uid-remap"
   assert_file_contains .agent-sandbox/compose/user.override.yml "target: /workspace/.abx  # abx: uid-remap"
   assert_file_contains .agent-sandbox/compose/user.override.yml "shell.d"
   assert_eq "$(exec_args | grep -c -x -e '--add-dir' || true)" "0" "--add-dir arguments"
@@ -123,10 +126,9 @@ test_claude_configuration_is_kept_when_the_agent_gets_a_derived_image() {
   local override=.agent-sandbox/compose/user.override.yml
   assert_file_contains "$override" "image: abx/agent-sandbox-claude-uid1000:latest  # abx: uid-remap"
   assert_file_contains "$override" "target: /opt/abx/.claude  # abx: uid-remap"
-  assert_file_contains "$override" "target: /opt/abx-base  # abx: uid-remap"
   assert_file_contains "$override" "target: /workspace/.abx  # abx: uid-remap"
   assert_eq "$(exec_args | sed -n '/^--add-dir$/{n;p;}' | tr '\n' ' ')" "/opt/abx " "directories passed to --add-dir"
-  assert_eq "$(exec_args | sed -n '/^--append-system-prompt-file$/{n;p;}')" "/opt/abx-base/CLAUDE.md" "instructions file"
+  assert_instructions_appended
 }
 
 test_editing_instructions_does_not_rebuild_the_image() {

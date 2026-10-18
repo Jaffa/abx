@@ -45,7 +45,6 @@ _override_path() {
 _override_mounts() {
   OVERRIDE_MOUNTS=("/workspace/.abx=$PROJECT_DIR/$ABX_DIR")
   if [ -n "$CLAUDE_HOST" ]; then OVERRIDE_MOUNTS+=("$CLAUDE_DIR_TARGET=$CLAUDE_HOST"); fi
-  if [ -n "$BASE_CLAUDE_HOST" ]; then OVERRIDE_MOUNTS+=("$BASE_CLAUDE_TARGET=$BASE_CLAUDE_HOST"); fi
 }
 
 _override_snippet() {

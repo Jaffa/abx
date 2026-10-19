@@ -142,3 +142,46 @@ _remove_owned_sidecar() {
 _owned_sidecar_running() {
   [ "$(_sidecar_owner "$1")" = owned ] && [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null || true)" = true ]
 }
+
+# Sessions of abx are registered as files named by the PID of the abx process, in SESSIONS_DIR (see lib/bedrock.sh),
+# which is outside the project. They let the last session out remove the Bedrock gateway, and stop a session from
+# recreating containers that another is running in. A session of an abx that predates this isn't registered.
+SESSION_PID_RE='^[0-9]+$'
+
+_register_session() {
+  mkdir -p "$SESSIONS_DIR"
+  chmod 700 "$(dirname "$ABX_RUNTIME_DIR")" "$ABX_RUNTIME_DIR" "$SESSIONS_DIR"
+  : > "$SESSIONS_DIR/$$"
+}
+
+_unregister_session() {
+  rm -f "$SESSIONS_DIR/$$"
+}
+
+# The PIDs of the other registered sessions that are still running, one per line. A file whose process has gone is
+# removed.
+_live_sessions() {
+  local f pid
+  for f in "$SESSIONS_DIR"/*; do
+    [ -f "$f" ] || continue
+    pid="$(basename "$f")"
+    [[ "$pid" =~ $SESSION_PID_RE ]] || continue
+    [ "$pid" = "$$" ] && continue
+    if kill -0 "$pid" 2>/dev/null; then echo "$pid"; else rm -f "$f"; fi
+  done
+  return 0
+}
+
+# Whether recreating the containers would kill another session: one is live and a container is running. docker rm -f
+# ends that session's Claude with exit status 137.
+_session_would_be_killed() {
+  [ -n "$(_live_sessions)" ] && [ -n "$(_owned_ids '' running)" ]
+}
+
+# Stops abx before it removes containers that another session is running in. WHAT says why they'd be recreated. It's
+# checked before anything is changed on disk, so that a rerun, once the other session has ended, still sees the change
+# to make.
+_require_no_live_session() { # WHAT
+  _session_would_be_killed || return 0
+  die "$1, which would kill the abx session already running in this project (PID $(_live_sessions | tr '\n' ' ' | sed 's/ $//')). Exit it, then rerun abx. If no session is running, remove the stale file in $SESSIONS_DIR."
+}

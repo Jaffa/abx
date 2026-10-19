@@ -88,17 +88,10 @@ _bedrock_init_vars() {
   esac
 }
 
-# Gateway sessions are tracked by PID so the gateway outlives any one of several concurrent sessions.
+# Gateway sessions are the registered sessions (see lib/containers.sh), so the gateway outlives any one of several
+# concurrent sessions.
 _other_gateway_sessions_alive() {
-  local f pid
-  for f in "$SESSIONS_DIR"/*; do
-    [ -f "$f" ] || continue
-    pid="$(basename "$f")"
-    [ "$pid" = "$$" ] && continue
-    if kill -0 "$pid" 2>/dev/null; then return 0; fi
-    rm -f "$f"
-  done
-  return 1
+  [ -n "$(_live_sessions)" ]
 }
 
 # agentbox's output is kept in a log, since a stack that won't start is otherwise invisible here.
@@ -158,8 +151,7 @@ _ensure_signer_image() {
 
 _start_bedrock_gateway() {
   local ctr nets net i no_proxy
-  mkdir -p "$SESSIONS_DIR"
-  : > "$SESSIONS_DIR/$$"
+  _register_session
   trap _restore_terminal EXIT
 
   ctr="$(_running_agent_container)"
@@ -204,8 +196,8 @@ _start_bedrock_gateway() {
 }
 
 _stop_bedrock_gateway() {
-  [ -f "$SESSIONS_DIR/$$" ] || return 0
-  rm -f "$SESSIONS_DIR/$$"
+  [ "$BEDROCK_ENABLED" = true ] || return 0
+  _unregister_session
   if ! _other_gateway_sessions_alive; then
     _remove_owned_sidecar "$GATEWAY_CONTAINER"
     rm -f "$CREDS_FILE"

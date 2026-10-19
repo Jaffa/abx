@@ -90,6 +90,11 @@ _write_override() {
     rm -f "$backup"
     return 0
   fi
+  # The change is undone first, or a rerun would find the override already current and leave the old containers running.
+  if _session_would_be_killed; then
+    if [ -n "$backup" ]; then mv -f "$backup" "$file"; else rm -f "$file"; fi
+    _require_no_live_session "The sandbox's configuration needs to change, so its containers need recreating"
+  fi
   # Each change abx made must show in agentbox's merged configuration, or the file is restored.
   config="$(agentbox compose config 2>/dev/null || true)"
   missing=""
@@ -105,6 +110,7 @@ _write_override() {
   fi
   rm -f "$backup"
   # Containers started from the previous override don't have the change, so they're recreated.
+  if [ -n "$(_owned_ids '' running)" ]; then info "The sandbox's configuration changed, so its containers are being recreated."; fi
   _stop_project_containers
   debug "override $status in $file"
 }
@@ -194,6 +200,7 @@ _write_image_state() { # BASE USER ORIG_USER OLD_UID OLD_GID TARGET_UID TARGET_G
 
 _stop_project_containers() {
   local ids
+  _require_no_live_session "The sandbox's containers need recreating"
   ids="$(_owned_ids)"
   if [ -n "$ids" ]; then
     # shellcheck disable=SC2086
@@ -284,6 +291,7 @@ _recover_derived_record() { # IMAGE
 # container's: the files the agent wrote carry them, so they're what the volumes are re-owned from.
 _apply_derived_image() { # UID GID USER TARGET_UID TARGET_GID
   local c_uid="$1" c_gid="$2" c_user="$3" target_uid="$4" target_gid="$5" ctr base orig_user volumes=""
+  _require_no_live_session "The agent needs a new image"
   ctr="$(_agent_container)"
   [ -n "$ctr" ] || die "Couldn't find the running agent container for project '$PROJECT_NAME' to inspect."
   base="$(docker inspect -f '{{.Config.Image}}' "$ctr")"
@@ -320,6 +328,7 @@ _apply_derived_image() { # UID GID USER TARGET_UID TARGET_GID
 # group was renumbered has no TARGET_GID, so the host's group is used.
 _refresh_derived_image() {
   local pull="$1" target_uid="${TARGET_UID:-$HOST_UID}" target_gid="${TARGET_GID:-$HOST_GID}"
+  _require_no_live_session "The agent image needs rebuilding"
   # The state was checked by _read_uid_remap, and is never sourced.
   _build_derived_image "$BASE" "$USER_NAME" "$ORIG_USER" "$OLD_UID" "$OLD_GID" "$target_uid" "$target_gid" "$pull"
   _write_override "$REMAPPED_IMAGE"

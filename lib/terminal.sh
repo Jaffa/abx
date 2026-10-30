@@ -8,6 +8,7 @@ SAVED_TTY=""
 # exec ending, so they are reset here rather than relying on the inner process.
 _restore_terminal() {
   _stop_port_forwarder
+  _stop_outbound_relay
   _stop_bedrock_gateway
   _unregister_session
   if [ -n "$REFRESHER_PID" ]; then

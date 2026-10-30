@@ -8,7 +8,9 @@ SAVED_TTY=""
 # exec ending, so they are reset here rather than relying on the inner process.
 _restore_terminal() {
   _stop_port_forwarder
+  _stop_outbound_relay
   _stop_bedrock_gateway
+  _unregister_session
   if [ -n "$REFRESHER_PID" ]; then
     kill "$REFRESHER_PID" 2>/dev/null || true
     if [ -s "$REFRESH_LOG" ]; then
@@ -25,6 +27,7 @@ _restore_terminal() {
 
 _run_interactive() {
   local rc
+  _register_session
   if [ -t 0 ]; then SAVED_TTY="$(stty -g 2>/dev/null || true)"; fi
   trap _restore_terminal EXIT
   set +e

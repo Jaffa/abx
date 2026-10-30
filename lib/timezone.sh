@@ -43,6 +43,7 @@ _ensure_timezone() {
   for id in $(_owned_ids agent); do
     tz="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null | sed -n 's/^TZ=//p' || true)"
     if [ "$tz" != "$HOST_TZ" ]; then
+      _require_no_live_session "The sandbox's clock uses ${tz:-no time zone} but this host's is $HOST_TZ, so its containers need recreating"
       info "Recreating the sandbox containers so their clock uses $HOST_TZ (they used ${tz:-no time zone})."
       _stop_project_containers
       return 0

@@ -64,6 +64,9 @@ Options (before any claude args):
                          (default 3000-3010,4173,5170-5190,6006,8080-8090)
   --ports-lan[=SPEC]     as --ports, but on all network interfaces
   --no-ports             don't publish ports, even if ABX_PORTS is set
+  --outbound-tcp IP:PORT let the sandbox open TCP connections to this IPv4 address and port, through a relay on the
+                         sandbox's network (repeatable). Only that endpoint is reachable, and the domain allowlist
+                         doesn't apply to it. Claude connects to host abx-outbound on the same port
   --no-bedrock           stop using Bedrock for this project and remove its credentials file
   --debug                verbose output
   --quiet                suppress abx's own messages
@@ -96,6 +99,7 @@ BEDROCK_MODE=""
 PORTS_MODE=""
 PORTS_ARG=""
 PORTS_LAN=false
+OUTBOUND_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,6 +109,8 @@ while [ $# -gt 0 ]; do
     --ports-lan) PORTS_MODE=on; PORTS_LAN=true; shift ;;
     --ports-lan=*) PORTS_MODE=on; PORTS_LAN=true; PORTS_ARG="${1#--ports-lan=}"; shift ;;
     --no-ports) PORTS_MODE=off; shift ;;
+    --outbound-tcp) [ $# -ge 2 ] || die "--outbound-tcp needs IP:PORT, e.g. --outbound-tcp 192.168.1.50:5555"; OUTBOUND_ARGS+=("$2"); shift 2 ;;
+    --outbound-tcp=*) OUTBOUND_ARGS+=("${1#--outbound-tcp=}"); shift ;;
     --no-bedrock) BEDROCK_MODE=off; shift ;;
     --debug) ABX_DEBUG=true; shift ;;
     --quiet) ABX_QUIET=true; shift ;;
@@ -120,6 +126,9 @@ if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ] && [ $# -gt 0 ]; then
   esac
   PASSTHROUGH_ARGS+=("$@")
 fi
+
+# Checked before anything else, so a bad endpoint stops abx before the sandbox is touched.
+_outbound_parse
 
 # ── prerequisites ─────────────────────────────────────────────────────────────
 
@@ -201,6 +210,8 @@ _image_init_vars
 
 _ports_init_vars
 
+_outbound_init_vars
+
 _settings_init_vars
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
@@ -233,6 +244,7 @@ case "$COMMAND" in
       [ "$PORTS_LAN" = true ] && PORTS_BIND="0.0.0.0"
       _start_port_forwarder
     fi
+    if [ -n "$OUTBOUND_SPECS" ]; then _start_outbound_relay; fi
     _write_abx_settings
     # 'agentbox exec' passes its arguments through verbatim, so a small shell sets the directory.
     _run_interactive agentbox exec sh -c 'cd "$1" && shift && exec claude "$@"' abx \
@@ -245,6 +257,7 @@ case "$COMMAND" in
     _ensure_timezone
     _ensure_uid_match
     _ensure_abx_mount
+    if [ -n "$OUTBOUND_SPECS" ]; then _start_outbound_relay; fi
     if [ -n "$START_REL" ]; then
       _run_interactive agentbox exec sh -c 'cd "$1" && exec "${SHELL:-/bin/sh}" -l' abx "$SANDBOX_WORKSPACE$START_REL"
     else

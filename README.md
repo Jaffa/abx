@@ -103,6 +103,7 @@ Run abx from a subdirectory and Claude starts there, using the enclosing project
 | `--ports[=SPEC]` | Publish ports from the sandbox on localhost for this session. Default `3000-3010,4173,5170-5190,6006,8080-8090` |
 | `--ports-lan[=SPEC]` | The same, on all network interfaces |
 | `--no-ports` | Don't publish ports, even if `ABX_PORTS` is set |
+| `--outbound-tcp IP:PORT` | Let the sandbox open TCP connections to this IPv4 address and port, through a relay. Repeatable. Only that endpoint is reachable, and the domain allowlist doesn't apply to it |
 | `--debug` / `--quiet` | More or less of abx's own output |
 
 `abx help` lists the environment variables, such as `ABX_PORTS` for ports in every session, and `ABX_BEDROCK_PROFILE` for the AWS profile Bedrock mode uses.
@@ -154,6 +155,16 @@ abx --ports=5173,8080    # your own selection
 Ports are published on localhost for the session and removed when it ends. Ports already in use on your machine are skipped, and abx says which. Claude is told which ports are published, and that servers must listen on `0.0.0.0` inside the sandbox (for Vite: `--host 0.0.0.0`), because a server listening only on the container's own localhost can't be reached.
 
 `--ports-lan` publishes on all network interfaces instead. On Linux, Docker's published ports can bypass host firewalls such as ufw, so only use it when you mean to expose the server.
+
+## Outbound TCP to a device on your network
+
+```bash
+abx --outbound-tcp 192.168.1.50:5555     # e.g. an Android TV's adb port
+```
+
+The sandbox's proxy carries only HTTP and HTTPS, and its firewall drops other outbound traffic, so a device on your LAN is unreachable by default. `--outbound-tcp` starts a relay on the sandbox's network that forwards to the endpoint you name and nothing else. Claude connects to host `abx-outbound` on the same port (`adb connect abx-outbound:5555`) and is told which endpoints are relayed. The relay stops when the last session ends.
+
+The address must be an IPv4 address, since names aren't looked up. Loopback, link-local and multicast addresses are refused, and so is the Docker gateway, which is your machine itself. Ports must be 1024 or higher, because the relay listens on the endpoint's port without privileges. An address outside your private networks gets a warning, because the relay reaches it without the allowlist.
 
 ## Git
 

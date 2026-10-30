@@ -1,7 +1,7 @@
 # Run as a file rather than from stdin, so the working directory (the project, which the agent can write to) isn't first on sys.path.
-# usage: write_settings.py PATH STATUSLINE BEDROCK REGION PORTS GATEWAY NO_PROXY
+# usage: write_settings.py PATH STATUSLINE BEDROCK REGION PORTS GATEWAY NO_PROXY OUTBOUND
 import json, os, sys
-path, statusline, bedrock, region, ports, gateway, no_proxy = sys.argv[1:8]
+path, statusline, bedrock, region, ports, gateway, no_proxy, outbound = sys.argv[1:9]
 data = {}
 # Claude Code reads CLAUDE.md from --add-dir directories only when this is set, and the user's directory is added that way.
 env = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
@@ -13,6 +13,8 @@ if bedrock == "true":
                 "NO_PROXY": no_proxy, "no_proxy": no_proxy})
 if ports:
     env["ABX_PUBLISHED_PORTS"] = ports
+if outbound:
+    env["ABX_OUTBOUND_TCP"] = outbound
 data["env"] = env
 with open(path + ".tmp", "w") as f:
     json.dump(data, f, indent=2)

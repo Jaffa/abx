@@ -14,6 +14,7 @@
 #   build-fails          'build' fails
 #   run-fails            'run -d' fails, printing this file
 #   busy-ports           ports Docker reports as already allocated
+#   gateways/<network>   the gateway addresses of a network, one per line, for 'network inspect' with an IPAM template
 #   logs/<name>          output of 'docker logs'
 #   events               one line per removal: "removed NAME", "removed volume NAME", "removed network NAME", ...
 #   built/               the Dockerfile and context files of each built image
@@ -261,6 +262,8 @@ case "$1" in
         done < "$S/networks" ;;
       inspect)
         name="${!#}"
+        # A template for the network's IPAM gateways reads the gateways/<network> file, one address per line.
+        case "$*" in *IPAM*) cat "$S/gateways/$name" 2>/dev/null; exit 0 ;; esac
         containers_in "$(project_of "$name" "$S/networks")" ;;
       rm)
         name="${!#}"

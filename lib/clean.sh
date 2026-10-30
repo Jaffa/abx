@@ -39,7 +39,7 @@ _clean_plan_project() {
   done <<EOF
 $(_owned_containers)
 EOF
-  for name in "abx-gateway-$PROJECT_NAME" "abx-ports-$PROJECT_NAME"; do
+  for name in "abx-gateway-$PROJECT_NAME" "abx-ports-$PROJECT_NAME" "abx-outbound-$PROJECT_NAME"; do
     case "$(_sidecar_owner "$name")" in
       owned) CLEAN_CONTAINERS+=("$name $name") ;;
       foreign) CLEAN_NOTES+=("$name belongs to another directory, or to an earlier abx, so it's left alone.") ;;
@@ -96,7 +96,7 @@ EOF
 
   while read -r id name; do
     [ -n "$id" ] || continue
-    case "$name" in abx-gateway-*|abx-ports-*) CLEAN_CONTAINERS+=("$id $name") ;; esac
+    case "$name" in abx-gateway-*|abx-ports-*|abx-outbound-*) CLEAN_CONTAINERS+=("$id $name") ;; esac
   done <<EOF
 $(docker ps -a --format '{{.ID}} {{.Names}}' 2>/dev/null || true)
 EOF
